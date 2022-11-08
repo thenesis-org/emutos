@@ -22,7 +22,7 @@
 #include "videl.h"
 #include "asm.h"
 #include "tosvars.h"
-#include "lineavars.h"
+#include "vdi/vdi_interface.h"
 #include "nvram.h"
 #include "font.h"
 #include "vt52.h"
@@ -666,8 +666,7 @@ void screen_init_address(void)
 void set_rez_hacked(void)
 {
     rez_was_hacked = TRUE;
-
-    set_screen_shift();     /* set shift amount for screen address calc */
+    vdi_setScreenShift();     /* set shift amount for screen address calc */
     vt52_init();            /* initialize the vt52 console */
 }
 
@@ -714,7 +713,7 @@ WORD get_monitor_type(void)
 
 /* Settings for the different video modes */
 struct video_mode {
-    UWORD       planes;         /* count of color planes (v_planes) */
+    UWORD       planes;         /* count of color planes (lineaVars.screen_planeNb) */
     UWORD       hz_rez;         /* screen horizontal resolution (v_hz_rez) */
     UWORD       vt_rez;         /* screen vertical resolution (v_vt_rez) */
 };
@@ -751,7 +750,7 @@ ULONG calc_vram_size(void)
     if (HAS_VIDEL)
         return FALCON_VRAM_SIZE + EXTRA_VRAM_SIZE;
 
-    vram_size = (ULONG)BYTES_LIN * V_REZ_VT;
+    vram_size = (ULONG)lineaVars.screen_lineSize * lineaVars.screen_height;
 
     /* TT TOS allocates 256 bytes more than actually needed. */
     if (HAS_TT_SHIFTER)
@@ -771,9 +770,7 @@ ULONG calc_vram_size(void)
 
 static void shifter_get_current_mode_info(UWORD *planes, UWORD *hz_rez, UWORD *vt_rez)
 {
-    WORD vmode;                         /* video mode */
-
-    vmode = (sshiftmod & 7);            /* Get video mode from copy of hardware */
+    WORD vmode = (sshiftmod & 7);            /* Get video mode from copy of hardware */
     KDEBUG(("vmode: %d\n", vmode));
 
     *planes = vmode_table[vmode].planes;
@@ -784,9 +781,9 @@ static void shifter_get_current_mode_info(UWORD *planes, UWORD *hz_rez, UWORD *v
 static void atari_get_current_mode_info(UWORD *planes, UWORD *hz_rez, UWORD *vt_rez)
 {
 #if CONF_WITH_VIDEL
-    if (has_videl) {
+    if (has_videl)
         videl_get_current_mode_info(planes, hz_rez, vt_rez);
-    } else
+    else
 #endif
     {
         shifter_get_current_mode_info(planes, hz_rez, vt_rez);
@@ -856,8 +853,8 @@ WORD get_palette(void)
 /* returns 'standard' pixel sizes */
 static __inline__ void get_std_pixel_size(WORD *width,WORD *height)
 {
-    *width = (V_REZ_HZ < 640) ? 556 : 278;  /* magic numbers as used */
-    *height = (V_REZ_VT < 400) ? 556 : 278; /*  by TOS 3 & TOS 4     */
+    *width = (lineaVars.screen_width < 640) ? 556 : 278;  /* magic numbers as used */
+    *height = (lineaVars.screen_height < 400) ? 556 : 278; /*  by TOS 3 & TOS 4     */
 }
 
 /*
@@ -887,9 +884,9 @@ void get_pixel_size(WORD *width,WORD *height)
     else
     {
         /* ST TOS has its own set of magic numbers */
-        if (5 * V_REZ_HZ >= 12 * V_REZ_VT)  /* includes ST medium */
+        if (5 * lineaVars.screen_width >= 12 * lineaVars.screen_height)  /* includes ST medium */
             *width = 169;
-        else if (V_REZ_HZ >= 480)   /* ST high */
+        else if (lineaVars.screen_width >= 480)   /* ST high */
             *width = 372;
         else *width = 338;          /* ST low */
         *height = 372;
@@ -1204,7 +1201,7 @@ void vsync(void)
     }
 
 #if CONF_WITH_ATARI_VIDEO
-    set_sr(old_sr);
+    set_sr_only(old_sr);
 #endif /* CONF_WITH_ATARI_VIDEO */
 }
 
@@ -1257,7 +1254,7 @@ void detect_monitor_change(void)
                 break;
         }
 
-        set_sr(sr);
+        set_sr_only(sr);
         if (dmaplay & 1)
             monoflag = -monoflag;
     }

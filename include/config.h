@@ -376,11 +376,35 @@
 # ifndef CONF_WITH_SHUTDOWN
 #  define CONF_WITH_SHUTDOWN 0
 # endif
-# ifndef MAX_VERTICES
-#  define MAX_VERTICES 512
+# ifndef CONF_VDI_MAX_VERTICES
+#  define CONF_VDI_MAX_VERTICES 512
 # endif
 # ifndef NUM_VDI_HANDLES
 #  define NUM_VDI_HANDLES 64
+# endif
+# ifndef CONF_WITH_VDI_PLANAR_8
+#  define CONF_WITH_VDI_PLANAR_8 0
+# endif
+# ifndef CONF_WITH_VDI_PACKED_4
+#  define CONF_WITH_VDI_PACKED_4 0
+# endif
+# ifndef CONF_WITH_VDI_PACKED_8
+#  define CONF_WITH_VDI_PACKED_8 0
+# endif
+# ifndef CONF_WITH_VDI_PACKED_16
+#  define CONF_WITH_VDI_PACKED_16 0
+# endif
+# ifndef CONF_WITH_VDI_PACKED_24
+#  define CONF_WITH_VDI_PACKED_24 0
+# endif
+# ifndef CONF_WITH_VDI_PACKED_32
+#  define CONF_WITH_VDI_PACKED_32 0
+# endif
+# ifndef CONF_WITH_VDI_HORILINE
+#  define CONF_WITH_VDI_HORILINE 0
+# endif
+# ifndef CONF_WITH_BLITTER
+#  define CONF_WITH_BLITTER 0
 # endif
 #endif
 
@@ -430,8 +454,26 @@
 # ifndef CONF_WITH_MENU_EXTENSION
 #  define CONF_WITH_MENU_EXTENSION 0
 # endif
-# ifndef MAX_VERTICES
-#  define MAX_VERTICES 512
+# ifndef CONF_VDI_MAX_VERTICES
+#  define CONF_VDI_MAX_VERTICES 512
+# endif
+# ifndef CONF_WITH_VDI_PLANAR_8
+#  define CONF_WITH_VDI_PLANAR_8 0
+# endif
+# ifndef CONF_WITH_VDI_PACKED_4
+#  define CONF_WITH_VDI_PACKED_4 0
+# endif
+# ifndef CONF_WITH_VDI_PACKED_8
+#  define CONF_WITH_VDI_PACKED_8 0
+# endif
+# ifndef CONF_WITH_VDI_PACKED_16
+#  define CONF_WITH_VDI_PACKED_16 0
+# endif
+# ifndef CONF_WITH_VDI_PACKED_24
+#  define CONF_WITH_VDI_PACKED_24 0
+# endif
+# ifndef CONF_WITH_VDI_PACKED_32
+#  define CONF_WITH_VDI_PACKED_32 0
 # endif
 #endif
 
@@ -530,11 +572,35 @@
 # ifndef CONF_WITH_NOVA
 #  define CONF_WITH_NOVA 0
 # endif
-# ifndef MAX_VERTICES
-#  define MAX_VERTICES 512
+# ifndef CONF_VDI_MAX_VERTICES
+#  define CONF_VDI_MAX_VERTICES 512
 # endif
 # ifndef NUM_VDI_HANDLES
 #  define NUM_VDI_HANDLES 64
+# endif
+# ifndef CONF_WITH_VDI_HORILINE
+#  define CONF_WITH_VDI_HORILINE 0
+# endif
+# ifndef CONF_WITH_VDI_LINEA
+#  define CONF_WITH_VDI_LINEA 0
+# endif
+# ifndef CONF_WITH_VDI_PLANAR_8
+#  define CONF_WITH_VDI_PLANAR_8 0
+# endif
+# ifndef CONF_WITH_VDI_PACKED_4
+#  define CONF_WITH_VDI_PACKED_4 0
+# endif
+# ifndef CONF_WITH_VDI_PACKED_8
+#  define CONF_WITH_VDI_PACKED_8 0
+# endif
+# ifndef CONF_WITH_VDI_PACKED_16
+#  define CONF_WITH_VDI_PACKED_16 0
+# endif
+# ifndef CONF_WITH_VDI_PACKED_24
+#  define CONF_WITH_VDI_PACKED_24 0
+# endif
+# ifndef CONF_WITH_VDI_PACKED_32
+#  define CONF_WITH_VDI_PACKED_32 0
 # endif
 #endif
 
@@ -542,8 +608,8 @@
  * Defaults for the standard floppy target
  */
 #ifdef TARGET_FLOPPY
-# ifndef MAX_VERTICES
-#  define MAX_VERTICES 512
+# ifndef CONF_VDI_MAX_VERTICES
+#  define CONF_VDI_MAX_VERTICES 512
 # endif
 #endif
 
@@ -1630,11 +1696,11 @@
 
 /*
  * The VDI functions v_fillarea(), v_pline(), v_pmarker() can handle
- * up to MAX_VERTICES coordinates (MAX_VERTICES/2 points).
+ * up to CONF_VDI_MAX_VERTICES coordinates (CONF_VDI_MAX_VERTICES/2 points).
  * TOS2 allows 512 vertices, TOS3/TOS4 allow 1024.
  */
-#ifndef MAX_VERTICES
-# define MAX_VERTICES 1024
+#ifndef CONF_VDI_MAX_VERTICES
+# define CONF_VDI_MAX_VERTICES 1024
 #endif
 
 /*
@@ -1644,6 +1710,86 @@
 # define NUM_VDI_HANDLES 128    /* maximum number of open workstations */
 #endif
 
+/*
+ * Set to 1 to allow line-A VDI routines.
+ */
+# ifndef CONF_WITH_VDI_LINEA
+#  define CONF_WITH_VDI_LINEA 1
+# endif
+/*
+ * Set to 1 to allow 1 plane specific VDI routines.
+ */
+# ifndef CONF_WITH_VDI_PLANAR_1
+#  define CONF_WITH_VDI_PLANAR_1 1
+# endif
+/*
+ * Set to 1 to allow 2 planes specific VDI routines.
+ */
+# ifndef CONF_WITH_VDI_PLANAR_2
+#  define CONF_WITH_VDI_PLANAR_2 1
+# endif
+/*
+ * Set to 1 to allow 4 planes specific VDI routines.
+ */
+# ifndef CONF_WITH_VDI_PLANAR_4
+#  define CONF_WITH_VDI_PLANAR_4 1
+# endif
+/*
+ * Set to 1 to allow 8 planes specific VDI routines.
+ */
+# ifndef CONF_WITH_VDI_PLANAR_8
+#  define CONF_WITH_VDI_PLANAR_8 1
+# endif
+/*
+ * Set to 1 to allow 4-bit per pixel (packed) specific VDI routines.
+ */
+# ifndef CONF_WITH_VDI_PACKED_4
+#  define CONF_WITH_VDI_PACKED_4 1
+# endif
+/*
+ * Set to 1 to allow 8-bit per pixel (packed) specific VDI routines.
+ */
+# ifndef CONF_WITH_VDI_PACKED_8
+#  define CONF_WITH_VDI_PACKED_8 1
+# endif
+/*
+ * Set to 1 to allow 16-bit per pixel (packed) specific VDI routines.
+ */
+# ifndef CONF_WITH_VDI_PACKED_16
+#  define CONF_WITH_VDI_PACKED_16 1
+# endif
+/*
+ * Set to 1 to allow 24-bit per pixel (packed) specific VDI routines.
+ */
+# ifndef CONF_WITH_VDI_PACKED_24
+#  define CONF_WITH_VDI_PACKED_24 1
+# endif
+/*
+ * Set to 1 to allow 32-bit per pixel (packed) specific VDI routines.
+ */
+# ifndef CONF_WITH_VDI_PACKED_32
+#  define CONF_WITH_VDI_PACKED_32 1
+# endif
+
+#ifndef CONF_WITH_VDI_TEXT_SPEEDUP
+# define CONF_WITH_VDI_TEXT_SPEEDUP 1
+#endif
+
+/*
+ * Set CONF_WITH_VDI_VERTLINE to 1 to improve VDI vertical line drawing
+ * performance
+ */
+#ifndef CONF_WITH_VDI_VERTLINE
+# define CONF_WITH_VDI_VERTLINE 1
+#endif
+
+/*
+ * Set CONF_WITH_VDI_HORILINE to 1 to improve VDI horizontal line drawing
+ * performance
+ */
+#ifndef CONF_WITH_VDI_HORILINE
+# define CONF_WITH_VDI_HORILINE 1
+#endif
 
 
 /************************************************************

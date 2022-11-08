@@ -705,7 +705,7 @@ void dsp_execboot(const UBYTE *codeptr, LONG codesize, WORD ability)
     value = PSG->control;
     PSG->data = value & ~0x10;      /* clear DSP reset bit */
     PSG->data = value | 0x10;       /* assert bit to start DSP reset */
-    set_sr(old_sr);
+    set_sr_only(old_sr);
 
     /* delay to allow the DSP to reset */
     end = hz_200 + DSP_RESET_TIME;  /* like TOS4, but this seems excessive */
@@ -717,7 +717,7 @@ void dsp_execboot(const UBYTE *codeptr, LONG codesize, WORD ability)
     PSG->control = PSG_PORT_A;
     value = PSG->control;
     PSG->data = value & ~0x10;      /* unassert reset bit */
-    set_sr(old_sr);
+    set_sr_only(old_sr);
 
     /* load up to 512 DSP words (zero-fill if necessary) */
     if (codesize > DSP_BOOTSTRAP_SIZE)

@@ -11,14 +11,7 @@
 #define _AESEXT_H
 
 #include "obdefs.h"
-
-
-/* used by the VDI and by the desktop when calling the VDI */
-typedef struct
-{
-    WORD x;
-    WORD y;
-} Point;
+#include "vdi/vdi_api.h"
 
 #if CONF_WITH_BACKGROUNDS
 /* function used by AES and desktop, found in geminit.c */
@@ -42,4 +35,4 @@ void xlate_obj_array(OBJECT *obj_array, int nobj);
 /* flag to display alerts in Critical Error Handler */
 extern WORD enable_ceh; /* in gemdosif.S */
 
-#endif /* _AESEXT_H */
+#endif

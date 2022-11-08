@@ -18,7 +18,7 @@
 #include "delay.h"
 #include "vectors.h"
 #include "tosvars.h"
-#include "lineavars.h"
+#include "vdi/vdi_interface.h"
 #include "machine.h"
 #include "has.h"
 #include "biosext.h"
@@ -537,13 +537,13 @@ static void init_system_vars(void)
 
     /* Line A vars */
     /* Number of bitplanes */
-    v_planes = 1;
+    lineaVars.screen_planeNb = 1;
     /* Bytes per scan-line */
-    BYTES_LIN = v_lin_wr = 80;
+    lineaVars.screen_lineSize = lineaVars.screen_lineSize2 = 80;
     /* Vertical resolution */
-    V_REZ_VT = 480;
+    lineaVars.screen_height = 480;
     /* Horizontal resolution */
-    V_REZ_HZ = 640;
+    lineaVars.screen_width = 640;
 }
 
 /* Initialize Nova card */

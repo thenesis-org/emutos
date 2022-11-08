@@ -16,7 +16,7 @@
 #include "iorec.h"
 #include "tosvars.h"
 #include "bios.h"
-#include "lineavars.h"
+#include "vdi/vdi_interface.h"
 #include "vt52.h"
 #include "ikbd.h"
 #include "midi.h"

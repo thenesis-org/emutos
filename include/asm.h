@@ -33,6 +33,8 @@
 #ifndef ASM_H
 #define ASM_H
 
+#include "emutos.h"
+
 /* External function doing nothing */
 extern void just_rts(void);
 
@@ -193,7 +195,7 @@ static __inline__ void swpcopyw(const UWORD* src, UWORD* dest)
 
 
 /*
- * Pseudo-prototype for macro: void rolw1(byref WORD x);
+ * Pseudo-prototype for macro: void rolw1(byref UWORD x);
  *  rotates x leftwards by 1 bit
  */
 #ifdef __mcoldfire__
@@ -208,9 +210,24 @@ static __inline__ void swpcopyw(const UWORD* src, UWORD* dest)
     )
 #endif
 
+/*
+ * Pseudo-prototype for macro: void rolw(byref UWORD x, WORD count);
+ *  rotates x leftwards by count bits, with count being a dynamic value (not a constant).
+ */
+#ifdef __mcoldfire__
+#define rolw(x, n)    x=(x>>(16-(n)))|(x<<(n))
+#else
+#define rolw(x, n)                  \
+    __asm__ volatile                \
+    ("rol.w %1,%0"                  \
+    : "+d"(x)       /* outputs */   \
+    : "d"(n)        /* inputs */    \
+    : "cc"          /* clobbered */ \
+    )
+#endif
 
 /*
- * Pseudo-prototype for macro: void rorw1(byref WORD x);
+ * Pseudo-prototype for macro: void rorw1(byref UWORD x);
  *  rotates x rightwards by 1 bit
  */
 #ifdef __mcoldfire__
@@ -231,9 +248,9 @@ static __inline__ void swpcopyw(const UWORD* src, UWORD* dest)
  *  rotates x leftwards by count bits
  */
 #ifdef __mcoldfire__
-#define roll(x,n)    x=(x>>(32-(n)))|(x<<(n))
+#define rolli(x,n)    x=(x>>(32-(n)))|(x<<(n))
 #else
-#define roll(x,n)                   \
+#define rolli(x,n)                   \
     __asm__ volatile                \
     ("rol.l %2,%1"                  \
     : "=d"(x)       /* outputs */   \
@@ -248,9 +265,9 @@ static __inline__ void swpcopyw(const UWORD* src, UWORD* dest)
  *  rotates x rightwards by count bits
  */
 #ifdef __mcoldfire__
-#define rorl(x,n)    x=(x<<(32-(n)))|(x>>(n))
+#define rorli(x,n)    x=(x<<(32-(n)))|(x>>(n))
 #else
-#define rorl(x,n)                   \
+#define rorli(x,n)                   \
     __asm__ volatile                \
     ("ror.l %2,%1"                  \
     : "=d"(x)       /* outputs */   \
@@ -287,6 +304,22 @@ __extension__                             \
   _r;                                     \
 })
 
+/*
+ * WORD set_sr_only(WORD new);
+ *   sets sr to the new value
+ */
+
+#define set_sr_only(a)                    \
+__extension__                             \
+({short _a = (a);                         \
+  __asm__ volatile                        \
+  (\
+   "move.w %0,sr"                         \
+  :                  /* outputs */        \
+  : "nd"(_a)         /* inputs  */        \
+  : "cc", "memory"   /* clobbered */      \
+  );                                      \
+})
 
 /*
  * WORD get_sr(void);

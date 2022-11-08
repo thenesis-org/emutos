@@ -40,7 +40,7 @@
         // Overall memory map
         .extern __etext       // end of text section
         .extern __edata       // end of data section
-        .extern __endvdibss   // end of VDI BSS
+        .extern __vdi_bss_end   // end of VDI BSS
 
         .extern _root
         .extern _shifty
@@ -88,7 +88,7 @@ reseth:
 os_beg:
     .dc.l   _os_header  // base of OS = _sysbase
 os_end:
-    .dc.l   __endvdibss // end of VDI BSS
+    .dc.l   __vdi_bss_end // end of VDI BSS
 os_res1:
     .dc.l   _main       // reserved
 os_magic:

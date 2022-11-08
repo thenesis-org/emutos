@@ -23,10 +23,9 @@
 #include "biosext.h"
 #include "bios.h"
 #include "../bdos/bdosstub.h"
-#include "../vdi/vdistub.h"
+#include "vdi/vdi_interface.h"
 #include "bdosbind.h"
 #include "gemerror.h"
-#include "lineavars.h"
 #include "vt52.h"
 #include "processor.h"
 #include "initinfo.h"
@@ -169,10 +168,10 @@ static void vecs_init(void)
 #endif
 
     /* initialise some vectors we really need */
-    VEC_GEM = vditrap;
+    VEC_GEM = vdi_trap;
     VEC_BIOS = biostrap;
     VEC_XBIOS = xbiostrap;
-    VEC_LINEA = int_linea;
+    VEC_LINEA = linea_exceptionHandler;
 
     /* Emulate some instructions unsupported by the processor. */
 #ifdef __mcoldfire__
@@ -327,7 +326,7 @@ static void bios_init(void)
 
     /* Set up the BIOS console output */
     KDEBUG(("linea_init()\n"));
-    linea_init();       /* initialize screen related line-a variables */
+    linea_init(); /* initialize screen related line-a variables */
 
     /*
      * Initialize the screen address
@@ -527,7 +526,7 @@ static void bios_init(void)
 
 #if CONF_WITH_CARTRIDGE
     {
-        WORD save_hz = V_REZ_HZ, save_vt = V_REZ_VT, save_pl = v_planes;
+        WORD save_hz = lineaVars.screen_width, save_vt = lineaVars.screen_height, save_pl = lineaVars.screen_planeNb;
 
         /* Run all boot applications from the application cartridge.
          * Beware: Hatari features a special cartridge which is used
@@ -538,10 +537,8 @@ static void bios_init(void)
         run_cartridge_applications(3); /* Type "Execute prior to bootdisk" */
         KDEBUG(("after run_cartridge_applications()\n"));
 
-        if ((V_REZ_HZ != save_hz) || (V_REZ_VT != save_vt) || (v_planes != save_pl))
-        {
+        if ((lineaVars.screen_width != save_hz) || (lineaVars.screen_height != save_vt) || (lineaVars.screen_planeNb != save_pl))
             set_rez_hacked();   /* also reinitializes the vt52 console */
-        }
     }
 #endif
 

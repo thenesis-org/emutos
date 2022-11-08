@@ -36,7 +36,6 @@
 #include "gemdisp.h"
 #include "gemaplib.h"
 #include "gsx2.h"
-#include "funcdef.h"
 #include "intmath.h"
 #include "string.h"
 #include "asm.h"
@@ -120,7 +119,7 @@ void ap_tplay(const EVNTREC *pbuff,WORD length,WORD scale)
 {
     WORD   i;
     FPD    f;
-    PFVOID mot_vecx_save = NULL;
+    PFVOID vdi_Function_setMouseMoveVector_save = NULL;
 
     gl_play = TRUE;
 
@@ -138,17 +137,17 @@ void ap_tplay(const EVNTREC *pbuff,WORD length,WORD scale)
             f.f_code = bchange;
             break;
         case MCHNG:
-            if (!mot_vecx_save)     /* i.e. first time for MCHNG */
+            if (!vdi_Function_setMouseMoveVector_save)     /* i.e. first time for MCHNG */
             {
                 /*
                  * disconnect cursor drawing & movement routines
                  */
                 i_ptr(just_rts);
-                gsx_0code(CUR_VECX);
+                gsx_0code(vdi_Function_setMouseDrawingVector);
                 m_lptr2(&drwaddr);  /* old address will be used by drawrat() */
                 i_ptr(just_rts);
-                gsx_0code(MOT_VECX);
-                m_lptr2(&mot_vecx_save);
+                gsx_0code(vdi_Function_setMouseMoveVector);
+                m_lptr2(&vdi_Function_setMouseMoveVector_save);
             }
             f.f_code = mchange;
             break;
@@ -170,14 +169,14 @@ void ap_tplay(const EVNTREC *pbuff,WORD length,WORD scale)
     /*
      *  if we disconnected above, reconnect the old routines
      */
-    if (mot_vecx_save)
+    if (vdi_Function_setMouseMoveVector_save)
     {
         drawrat(xrat, yrat);
         gsx_setmousexy(xrat, yrat);     /* no jumping cursors, please */
         i_ptr(drwaddr);                 /* restore vectors */
-        gsx_0code(CUR_VECX);
-        i_ptr(mot_vecx_save);
-        gsx_0code(MOT_VECX);
+        gsx_0code(vdi_Function_setMouseDrawingVector);
+        i_ptr(vdi_Function_setMouseMoveVector_save);
+        gsx_0code(vdi_Function_setMouseMoveVector);
     }
 
     gl_play = FALSE;

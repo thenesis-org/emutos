@@ -21,7 +21,6 @@
 #include "delay.h"
 #include "tosvars.h"
 #include "screen.h"
-#include "../vdi/vdi_defs.h"
 #include "disk.h"
 #include "gemerror.h"
 
@@ -170,7 +169,7 @@ static void lisa_write_cops(UBYTE b)
     /* Reset Port A direction to input */
     DDRA1 = 0x00;
 
-    set_sr(old_sr);
+    set_sr_only(old_sr);
 }
 
 /* Return TRUE if there is a pending byte from COPS */
@@ -468,7 +467,7 @@ ULONG lisa_getdt(void)
     for (i = 0; i < 7; i++)
         data[i] = lisa_read_cops();
 
-    set_sr(old_sr);
+    set_sr_only(old_sr);
 
     /* Year */
     lisa_year = 1980 + (data[1] & 0x0f);

@@ -100,7 +100,7 @@ static LONG prnout(WORD c)
      */
 
     /* restore sr */
-    set_sr(old_sr);
+    set_sr_only(old_sr);
     return 1L;
 }
 #endif

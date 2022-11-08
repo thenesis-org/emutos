@@ -9,28 +9,43 @@
  * This file is distributed under the GPL, version 2 or at your
  * option any later version.  See doc/license.txt for details.
  */
+#ifndef blitter_h
+#define blitter_h
 
-#ifndef _BLITTER_H
-#define _BLITTER_H
+#include "emutos.h"
 
-#if CONF_WITH_BLITTER
+// The following are used by the blitter and the blitter emulation code.
 
-/*
- * architectural definitions
- */
-#define BLITTER     ((BLIT *)0xFFFF8A00L)
+// Bitblt modes. Keep this exact order, this is used also for the blitter hardware.
+typedef enum {
+    BM_ALL_WHITE,
+    BM_S_AND_D,
+    BM_S_AND_NOTD,
+    BM_S_ONLY,
+    BM_NOTS_AND_D,
+    BM_D_ONLY,
+    BM_S_XOR_D,
+    BM_S_OR_D,
+    BM_NOT_SORD,
+    BM_NOT_SXORD,
+    BM_NOT_D,
+    BM_S_OR_NOTD,
+    BM_NOT_S,
+    BM_NOTS_OR_D,
+    BM_NOT_SANDD,
+    BM_ALL_BLACK
+} BlitterOp;
 
-typedef struct
-{
+typedef struct {
     UWORD           halftone[16];       /* halftone RAM */
-    WORD            src_x_incr;         /* source X increment */
-    WORD            src_y_incr;         /* source Y increment */
+    WORD            src_x_inc;         /* source X increment */
+    WORD            src_y_inc;         /* source Y increment */
     volatile UWORD  *src_addr;          /* source address */
     UWORD           endmask_1;          /* for first write of line */
     UWORD           endmask_2;          /* for other writes */
     UWORD           endmask_3;          /* for last write of line */
-    WORD            dst_x_incr;         /* destination X increment */
-    WORD            dst_y_incr;         /* destination Y increment */
+    WORD            dst_x_inc;         /* destination X increment */
+    WORD            dst_y_inc;         /* destination Y increment */
     volatile UWORD  *dst_addr;          /* destination address */
     volatile UWORD  x_count;            /* X count */
     volatile UWORD  y_count;            /* Y count */
@@ -40,29 +55,23 @@ typedef struct
     UBYTE           skew;               /* FXSR, NFSR, & skew */
 } BLIT;
 
+#if CONF_WITH_BLITTER
+#define BLITTER ((BLIT * RESTRICT)0xFFFF8A00L)
 #endif
 
-/* the following are used by the blitter and the blitter emulation code */
-
-/*
- * values for hop
- */
+// Values for hop
 #define HOP_ALL_ONES            0
 #define HOP_HALFTONE_ONLY       1
 #define HOP_SOURCE_ONLY         2
 #define HOP_SOURCE_AND_HALFTONE 3
 
-/*
- * values for status
- */
+// Values for status
 #define BUSY        0x80
 #define HOG         0x40
 #define SMUDGE      0x20
 #define LINENO      0x0f
 
-/*
- * values for skew
- */
+// Values for skew
 #define FXSR    0x80
 #define NFSR    0x40
 #define SKEW    0x0f

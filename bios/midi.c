@@ -53,7 +53,7 @@ LONG bconin3(void)
         value = *(UBYTE *)(midiiorec.buf+midiiorec.head);
 
         /* restore interrupts */
-        set_sr(old_sr);
+        set_sr_only(old_sr);
         return value;
     }
 #else

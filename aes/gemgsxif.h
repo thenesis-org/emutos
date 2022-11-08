@@ -67,10 +67,10 @@ void vex_wheelv(PFVOID new, PFVOID *old);
 /*
  * use #defines for simple functions
  */
-#define vsf_color(x)    gsx_1code(SET_FILL_COLOR, x)
-#define vsf_interior(x) gsx_1code(SET_FILL_INTERIOR, x)
-#define vsf_style(x)    gsx_1code(SET_FILL_STYLE, x)
-#define vsl_type(x)     gsx_1code(SET_LINE_TYPE, x)
-#define vsl_udsty(x)    gsx_1code(SET_UD_LINE_STYLE, x)
+#define vsf_color(x)    gsx_1code(vdi_Function_setFillColor, x)
+#define vsf_interior(x) gsx_1code(vdi_Function_setFillInterior, x)
+#define vsf_style(x)    gsx_1code(vdi_Function_setFillStyle, x)
+#define vsl_type(x)     gsx_1code(vdi_Function_setLineType, x)
+#define vsl_udsty(x)    gsx_1code(vdi_Function_setCustomLineStyle, x)
 
 #endif

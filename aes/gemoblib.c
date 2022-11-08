@@ -19,11 +19,11 @@
 /* #define ENABLE_KDEBUG */
 
 #include "emutos.h"
+#include "vdi/vdi_api.h"
 #include "struct.h"
 #include "obdefs.h"
 #include "aesext.h"
 #include "gemlib.h"
-#include "funcdef.h"
 
 #include "geminit.h"
 #include "gemgsxif.h"
@@ -550,7 +550,7 @@ static void just_draw(OBJECT *tree, WORD obj, WORD sx, WORD sy)
     if (obtype != G_STRING)
     {
         tmpth = (th < 0) ? 0 : th;
-        tmode = MD_REPLACE;
+        tmode = vdi_WritingMode_replace;
         tcol = BLACK;
 
         /*
@@ -661,7 +661,7 @@ static void just_draw(OBJECT *tree, WORD obj, WORD sx, WORD sy)
             /* draw box's border */
             if (th != 0)
             {
-                gsx_attr(FALSE, MD_REPLACE, bcol);
+                gsx_attr(FALSE, vdi_WritingMode_replace, bcol);
                 gr_box(t.g_x, t.g_y, t.g_w, t.g_h, th);
             }
             /* draw filled box */
@@ -770,7 +770,7 @@ static void just_draw(OBJECT *tree, WORD obj, WORD sx, WORD sy)
 #endif
             gsx_blt((void *)bi.bi_pdata, bi.bi_x, bi.bi_y,
                     t.g_x, t.g_y, bi.bi_wb * 8,
-                    bi.bi_hl, MD_TRANS, bi.bi_color, WHITE);
+                    bi.bi_hl, vdi_WritingMode_transparent, bi.bi_color, WHITE);
             break;
         case G_ICON:
             cicon = NULL;
@@ -901,14 +901,14 @@ static void just_draw(OBJECT *tree, WORD obj, WORD sx, WORD sy)
 
         if (state & CHECKED)
         {
-            gsx_attr(TRUE, MD_TRANS, BLACK);
+            gsx_attr(TRUE, vdi_WritingMode_transparent, BLACK);
             intin[0] = 0x08;                            /* a check mark */
             gsx_tblt(IBM, t.g_x+2, t.g_y, 1);
         }
 
         if (state & CROSSED)
         {
-            gsx_attr(FALSE, MD_TRANS, WHITE);
+            gsx_attr(FALSE, vdi_WritingMode_transparent, WHITE);
             gsx_cline(t.g_x, t.g_y, t.g_x+t.g_w-1, t.g_y+t.g_h-1);
             gsx_cline(t.g_x, t.g_y+t.g_h-1, t.g_x+t.g_w-1, t.g_y);
         }

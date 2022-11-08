@@ -210,7 +210,7 @@ TOOLCHAIN_CFLAGS = -fleading-underscore -Wa,--register-prefix-optional -fno-reor
 else
 # MiNT toolchain
 TOOLCHAIN_PREFIX = m68k-atari-mint-
-TOOLCHAIN_CFLAGS =
+TOOLCHAIN_CFLAGS = -std=gnu99
 endif
 
 # indent flags
@@ -224,18 +224,29 @@ ARFLAGS = rc
 LD = $(CC) $(MULTILIBFLAGS) -nostartfiles -nostdlib
 LIBS = -lgcc
 LDFLAGS = -Wl,-T,obj/emutospp.ld
+LDFLAGS += -Wl,--gc-sections
 PCREL_LDFLAGS = -Wl,--oformat=binary,-Ttext=0,--entry=0
 
 # C compiler
-CC = $(TOOLCHAIN_PREFIX)gcc
+#CC = $(TOOLCHAIN_PREFIX)gcc
+#CC = $(TOOLCHAIN_PREFIX)gcc-4.6.4
+#CC = $(TOOLCHAIN_PREFIX)gcc-7.5.0
+#CC = $(TOOLCHAIN_PREFIX)gcc-8.4.1
+CC = $(TOOLCHAIN_PREFIX)gcc-9.3.1
+#CC = $(TOOLCHAIN_PREFIX)gcc-10.1.0
 CPP = $(CC) -E
-CPUFLAGS = -m68000
+CPUFLAGS = -march=68000 -mcpu=68000 -mtune=68000
 MULTILIBFLAGS = $(CPUFLAGS) -mshort
-INC = -Iinclude
+INC = -I. -Iinclude
 OTHERFLAGS = -fomit-frame-pointer -fno-common
+# Gcc generates very stupid code when it tries to deduce variable values from loop count. It must be disabled.
+OTHERFLAGS += -fno-tree-scev-cprop
+# To allow dead code stripping. This does not work, GCC shows the following warnings: "cc1: warning: '-ffunction-sections'/'-fdata-sections' not supported for this target".
+#OTHERFLAGS += -fdata-sections -ffunction-sections
 
 # Optimization flags (affects ROM size and execution speed)
-STANDARD_OPTFLAGS = -O2
+#STANDARD_OPTFLAGS = -O3 -fno-align-functions -fno-align-jumps -fno-align-labels -fno-align-loops -fno-prefetch-loop-arrays -freorder-blocks-algorithm=simple -fno-loop-unroll-and-jam 
+STANDARD_OPTFLAGS = -Os
 SMALL_OPTFLAGS = -Os
 BUILD_TOOLS_OPTFLAGS = -O
 OPTFLAGS = $(STANDARD_OPTFLAGS)
@@ -299,7 +310,7 @@ bios_src += lowstram.c
 bios_src +=  memory.S processor.S vectors.S aciavecs.S bios.c xbios.c acsi.c \
              biosmem.c blkdev.c chardev.c clock.c conout.c country.c \
              disk.c dma.c dmasound.c floppy.c font.c ide.c ikbd.c initinfo.c \
-             kprint.c kprintasm.S linea.S lineainit.c lineavars.S machine.c \
+             kprint.c kprintasm.S machine.c \
              mfp.c midi.c mouse.c natfeat.S natfeats.c nvram.c panicasm.S \
              parport.c screen.c serport.c sound.c videl.c vt52.c xhdi.c \
              pmmu030.c 68040_pmmu.S \
@@ -337,19 +348,9 @@ endif
 # source code in vdi/
 #
 
-vdi_src = vdi_asm.S vdi_bezier.c vdi_col.c vdi_control.c vdi_esc.c \
-          vdi_fill.c vdi_gdp.c vdi_input.c vdi_line.c vdi_main.c \
-          vdi_marker.c vdi_misc.c vdi_mouse.c vdi_raster.c vdi_text.c \
-          vdi_textblit.c
-
-ifeq (1,$(COLDFIRE))
-vdi_src += vdi_tblit_cf.S
-else
-vdi_src += vdi_blit.S vdi_tblit.S
-endif
-
+vdi_src = vdi_asm.S vdi_linea_vars.c vdi.c vdi_soft.c vdi_blitter.c
 # The source below must be the last VDI one
-vdi_src += endvdi.S
+vdi_src += vdi_end.S
 
 #
 # source code in aes/

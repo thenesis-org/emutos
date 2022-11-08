@@ -12,8 +12,7 @@
  * option any later version.  See doc/license.txt for details.
  */
 
-#include "emutos.h"
-#include "lineavars.h"
+#include "vdi/vdi_interface.h"
 #include "font.h"
 #include "tosvars.h"            /* for save_row */
 #include "sound.h"              /* for bell() */
@@ -232,7 +231,7 @@ static void do_backspace(void)
  */
 static void do_tab(void)
 {
-    move_cursor((v_cur_cx & 0xfff8) + 8, v_cur_cy);
+    move_cursor((lineaVars.cursor_currentX & 0xfff8) + 8, lineaVars.cursor_currentY);
 }
 
 
@@ -298,7 +297,7 @@ static void get_fg_col(WORD ch)
 #endif
 
     /* set the foreground color from the 4 low-order bits only */
-    v_col_fg = ch & 0x0f;
+    lineaVars.color_foreground = ch & 0x0f;
     con_state = normal_ascii;           /* Next char is not special */
 }
 
@@ -315,7 +314,7 @@ static void get_bg_col(WORD ch)
 #endif
 
     /* set the foreground color from the 4 low-order bits only */
-    v_col_bg = ch & 0x0f;
+    lineaVars.color_background = ch & 0x0f;
     con_state = normal_ascii;           /* Next char is not special */
 }
 
@@ -341,14 +340,14 @@ static void clear_and_home(void)
 # if SERIAL_CONSOLE_HONOR_HOME
     bconout_str(1, "\033[H\033[2J");
 # else
-    if ( v_cur_cx )
+    if ( lineaVars.cursor_currentX )
         bconout_str(1, "\r\n");
 # endif
 #endif
 
     cursor_off();                               /* hide cursor */
     move_cursor(0, 0);                          /* cursor home */
-    blank_out (0, 0, v_cel_mx, v_cel_my);       /* clear screen */
+    blank_out (0, 0, lineaVars.font_cellColumnNbMinus1, lineaVars.font_cellRowNbMinus1);       /* clear screen */
     cursor_on_cnt();                            /* show cursor */
 }
 
@@ -362,8 +361,8 @@ static void cursor_up(void)
     bconout_str(1, "\033[A");
 #endif
 
-    if ( v_cur_cy )
-        move_cursor(v_cur_cx, v_cur_cy - 1);
+    if ( lineaVars.cursor_currentY )
+        move_cursor(lineaVars.cursor_currentX, lineaVars.cursor_currentY - 1);
 }
 
 
@@ -372,8 +371,8 @@ static void cursor_up(void)
  */
 static void cursor_down_impl(void)
 {
-    if ( v_cur_cy != v_cel_my)
-        move_cursor(v_cur_cx, v_cur_cy + 1);
+    if ( lineaVars.cursor_currentY != lineaVars.font_cellRowNbMinus1)
+        move_cursor(lineaVars.cursor_currentX, lineaVars.cursor_currentY + 1);
 }
 
 
@@ -399,8 +398,8 @@ static void cursor_right(void)
     bconout_str(1, "\033[C");
 #endif
 
-    if ( v_cur_cx != v_cel_mx)
-        move_cursor(v_cur_cx + 1, v_cur_cy);
+    if ( lineaVars.cursor_currentX != lineaVars.font_cellColumnNbMinus1)
+        move_cursor(lineaVars.cursor_currentX + 1, lineaVars.cursor_currentY);
 }
 
 
@@ -409,8 +408,8 @@ static void cursor_right(void)
  */
 static void cursor_left_impl(void)
 {
-    if ( v_cur_cx )
-        move_cursor(v_cur_cx - 1, v_cur_cy);
+    if ( lineaVars.cursor_currentX )
+        move_cursor(lineaVars.cursor_currentX - 1, lineaVars.cursor_currentY);
 }
 
 
@@ -436,7 +435,7 @@ static void cursor_home(void)
 # if SERIAL_CONSOLE_HONOR_HOME
     bconout_str(1, "\033[H");
 # else
-    if ( v_cur_cx )
+    if ( lineaVars.cursor_currentX )
         bconout_str(1, "\r\n");
 # endif
 #endif
@@ -457,11 +456,11 @@ static void erase_to_eos(void)
     erase_to_eol_impl(); /* erase to end of line */
 
     /* last line? */
-    if ( v_cur_cy == v_cel_my )
+    if ( lineaVars.cursor_currentY == lineaVars.font_cellRowNbMinus1 )
         return;    /* yes, done */
 
     /* erase from upper left corner to lower right corner */
-    blank_out (0, v_cur_cy + 1, v_cel_mx, v_cel_my);
+    blank_out (0, lineaVars.cursor_currentY + 1, lineaVars.font_cellColumnNbMinus1, lineaVars.font_cellRowNbMinus1);
 }
 
 
@@ -470,30 +469,30 @@ static void erase_to_eos(void)
  */
 static void erase_to_eol_impl(void)
 {
-    BOOL wrap = v_stat_0 & M_CEOL;      /* save line wrap status */
+    BOOL wrap = lineaVars.console_cellSystemStatus & M_CEOL;      /* save line wrap status */
     WORD s_cur_x, s_cur_y;
 
-    v_stat_0 &= ~M_CEOL;    /* clear EOL handling bit (overwrite) */
+    lineaVars.console_cellSystemStatus &= ~M_CEOL;    /* clear EOL handling bit (overwrite) */
 
     cursor_off();               /* hide cursor */
     /* save the x and y coords of cursor */
-    s_cur_x = v_cur_cx;
-    s_cur_y = v_cur_cy;
+    s_cur_x = lineaVars.cursor_currentX;
+    s_cur_y = lineaVars.cursor_currentY;
 
     /* is x = x maximum? */
-    if ( v_cur_cx == v_cel_mx )
+    if ( lineaVars.cursor_currentX == lineaVars.font_cellColumnNbMinus1 )
         ascii_out(' ');         /* output a space, the cell is odd! */
     else {
         /* test, if x is even or odd */
-        if ( IS_ODD(v_cur_cx) )
+        if ( IS_ODD(lineaVars.cursor_currentX) )
             ascii_out(' ');     /* first output a space */
 
-        blank_out (v_cur_cx, v_cur_cy, v_cel_mx, v_cur_cy);
+        blank_out (lineaVars.cursor_currentX, lineaVars.cursor_currentY, lineaVars.font_cellColumnNbMinus1, lineaVars.cursor_currentY);
     }
 
     /* restore wrap flag, the result of EOL test */
     if ( wrap )
-        v_stat_0 |= M_CEOL;
+        lineaVars.console_cellSystemStatus |= M_CEOL;
 
     move_cursor(s_cur_x, s_cur_y); /* restore cursor position */
     cursor_on_cnt();            /* show cursor */
@@ -522,7 +521,7 @@ static void reverse_video_on(void)
     bconout_str(1, "\033[7m");
 #endif
 
-    v_stat_0 |= M_REVID;    /* set the reverse bit */
+    lineaVars.console_cellSystemStatus |= M_REVID;    /* set the reverse bit */
 }
 
 
@@ -535,7 +534,7 @@ static void reverse_video_off(void)
     bconout_str(1, "\033[27m");
 #endif
 
-    v_stat_0 &= ~M_REVID;    /* clear the reverse bit */
+    lineaVars.console_cellSystemStatus &= ~M_REVID;    /* clear the reverse bit */
 }
 
 
@@ -545,11 +544,11 @@ static void reverse_video_off(void)
 static void reverse_linefeed(void)
 {
     /* if not at top of screen */
-    if ( v_cur_cy ) {
-        move_cursor(v_cur_cx, v_cur_cy - 1);
+    if ( lineaVars.cursor_currentY ) {
+        move_cursor(lineaVars.cursor_currentX, lineaVars.cursor_currentY - 1);
     }
     else {
-        int savex = v_cur_cx;           /* save current x position */
+        int savex = lineaVars.cursor_currentX;           /* save current x position */
         insert_line();                  /* Insert a line */
         move_cursor(savex, 0);
     }
@@ -565,8 +564,8 @@ static void insert_line(void)
     bconout_str(1, "\033[L");
 #endif
     cursor_off();               /* hide cursor */
-    scroll_down(v_cur_cy);      /* scroll down 1 line & blank current line */
-    move_cursor(0, v_cur_cy);   /* move cursor to beginning of line */
+    scroll_down(lineaVars.cursor_currentY);      /* scroll down 1 line & blank current line */
+    move_cursor(0, lineaVars.cursor_currentY);   /* move cursor to beginning of line */
     cursor_on_cnt();            /* show cursor */
 }
 
@@ -580,8 +579,8 @@ static void delete_line(void)
     bconout_str(1, "\033[M");
 #endif
     cursor_off();               /* hide cursor */
-    scroll_up(v_cur_cy);        /* scroll up 1 line & blank bottom line */
-    move_cursor(0, v_cur_cy);   /* move cursor to beginning of line */
+    scroll_up(lineaVars.cursor_currentY);        /* scroll up 1 line & blank bottom line */
+    move_cursor(0, lineaVars.cursor_currentY);   /* move cursor to beginning of line */
     cursor_on_cnt();            /* show cursor */
 }
 
@@ -598,11 +597,11 @@ static void erase_from_home(void)
     erase_from_bol_impl(); /* erase from beginning of line */
 
     /* first line? */
-    if ( !v_cur_cy )
+    if ( !lineaVars.cursor_currentY )
         return;    /* yes, done */
 
     /* erase rest of screen */
-    blank_out (0, 0, v_cel_mx, v_cur_cy - 1);        /* clear screen */
+    blank_out (0, 0, lineaVars.font_cellColumnNbMinus1, lineaVars.cursor_currentY - 1);        /* clear screen */
 }
 
 
@@ -611,15 +610,15 @@ static void erase_from_home(void)
  */
 static void do_cnt_esce(void)
 {
-    invert_cell(v_cur_cx, v_cur_cy);        /* complement cursor */
-    v_stat_0 |= M_CVIS;                     /* set visibility bit */
+    invert_cell(lineaVars.cursor_currentX, lineaVars.cursor_currentY);        /* complement cursor */
+    lineaVars.console_cellSystemStatus |= M_CVIS;                     /* set visibility bit */
 
     /* see if flashing is enabled */
-    if ( v_stat_0 & M_CFLASH ) {
-        v_stat_0 |= M_CSTATE;                   /* set cursor on */
+    if ( lineaVars.console_cellSystemStatus & M_CFLASH ) {
+        lineaVars.console_cellSystemStatus |= M_CSTATE;                   /* set cursor on */
 
         /* do not flash the cursor when it moves */
-        v_cur_tim = v_period;                   /* reset the timer */
+        lineaVars.cursor_blinkTimer = lineaVars.cursor_blinkRate;                   /* reset the timer */
     }
 }
 
@@ -635,10 +634,10 @@ static void cursor_on(void)
 #endif
 
     /* if disable count is zero (cursor still shown) then return */
-    if ( !disab_cnt )
+    if ( !lineaVars.cursor_disableCount )
         return;
 
-    disab_cnt = 0;                      /* reset the disable counter */
+    lineaVars.cursor_disableCount = 0;                      /* reset the disable counter */
     do_cnt_esce();
 }
 
@@ -649,11 +648,11 @@ static void cursor_on(void)
 static void cursor_on_cnt(void)
 {
     /* if disable count is zero (cursor still shown) then return */
-    if ( !disab_cnt )
+    if ( !lineaVars.cursor_disableCount )
         return;
 
-    disab_cnt--;                        /* decrement the disable counter */
-    if (!disab_cnt)
+    lineaVars.cursor_disableCount--;                        /* decrement the disable counter */
+    if (!lineaVars.cursor_disableCount)
         do_cnt_esce();                  /* if 0, do the enable */
 }
 
@@ -668,22 +667,22 @@ static void cursor_off(void)
     /* bconout_str(1, "\033[?25l"); */
 #endif
 
-    disab_cnt++;                        /* increment the disable counter */
+    lineaVars.cursor_disableCount++;                        /* increment the disable counter */
 
     /* test and clear the visible state bit */
-    if (!(v_stat_0 & M_CVIS) )
+    if (!(lineaVars.console_cellSystemStatus & M_CVIS) )
         return;                         /* if already invisible, just return */
 
-    v_stat_0 &= ~M_CVIS;                /* make invisible! */
+    lineaVars.console_cellSystemStatus &= ~M_CVIS;                /* make invisible! */
 
     /* see, if flashing is disabled */
-    if ( ! (v_stat_0 & M_CFLASH) ) {
-        invert_cell(v_cur_cx, v_cur_cy);
+    if ( ! (lineaVars.console_cellSystemStatus & M_CFLASH) ) {
+        invert_cell(lineaVars.cursor_currentX, lineaVars.cursor_currentY);
     }
     /* see, if cursor is on or off */
-    else if ( v_stat_0 & M_CSTATE ) {
-        v_stat_0 &= ~M_CSTATE;    /* cursor off? */
-        invert_cell(v_cur_cx, v_cur_cy);
+    else if ( lineaVars.console_cellSystemStatus & M_CSTATE ) {
+        lineaVars.console_cellSystemStatus &= ~M_CSTATE;    /* cursor off? */
+        invert_cell(lineaVars.cursor_currentX, lineaVars.cursor_currentY);
     }
 }
 
@@ -698,11 +697,11 @@ static void save_cursor_pos(void)
     /* bconout_str(1, "\033[s"); */
 #endif
 
-    v_stat_0 |= M_SVPOS;    /* set "position saved" status bit */
+    lineaVars.console_cellSystemStatus |= M_SVPOS;    /* set "position saved" status bit */
 
     /* save the x and y coords of cursor */
-    sav_cur_x = v_cur_cx;
-    sav_cur_y = v_cur_cy;
+    lineaVars.cursor_savedX = lineaVars.cursor_currentX;
+    lineaVars.cursor_savedY = lineaVars.cursor_currentY;
 }
 
 
@@ -716,12 +715,12 @@ static void restore_cursor_pos(void)
     /* bconout_str(1, "\033[u"); */
 #endif
 
-    if ( v_stat_0 & M_SVPOS )
-        move_cursor(sav_cur_x, sav_cur_y);      /* move to saved position */
+    if ( lineaVars.console_cellSystemStatus & M_SVPOS )
+        move_cursor(lineaVars.cursor_savedX, lineaVars.cursor_savedY);      /* move to saved position */
     else
         move_cursor(0, 0);      /* if position was not saved, home cursor */
 
-    v_stat_0 &= ~M_SVPOS;    /* clear "position saved" status bit */
+    lineaVars.console_cellSystemStatus &= ~M_SVPOS;    /* clear "position saved" status bit */
 }
 
 
@@ -737,8 +736,8 @@ static void erase_line(void)
 #endif
 
     cursor_off();               /* hide cursor */
-    blank_out (0, v_cur_cy, v_cel_mx, v_cur_cy);   /* blank whole line */
-    move_cursor(0, v_cur_cy);   /* move cursor to beginning of line */
+    blank_out (0, lineaVars.cursor_currentY, lineaVars.font_cellColumnNbMinus1, lineaVars.cursor_currentY);   /* blank whole line */
+    move_cursor(0, lineaVars.cursor_currentY);   /* move cursor to beginning of line */
     cursor_on_cnt();            /* show cursor */
 }
 
@@ -755,8 +754,8 @@ static void erase_from_bol_impl(void)
 
     cursor_off();               /* hide cursor */
     /* save the x and y coords of cursor */
-    s_cur_x = v_cur_cx;
-    s_cur_y = v_cur_cy;
+    s_cur_x = lineaVars.cursor_currentX;
+    s_cur_y = lineaVars.cursor_currentY;
 
     /*
      * because blank_out() requires the ending x position to be
@@ -799,7 +798,7 @@ static void line_wrap_on(void)
 #if CONF_SERIAL_CONSOLE_ANSI
     bconout_str(1, "\033[7h");
 #endif
-    v_stat_0 |= M_CEOL;    /* set the eol handling bit */
+    lineaVars.console_cellSystemStatus |= M_CEOL;    /* set the eol handling bit */
 }
 
 
@@ -811,7 +810,7 @@ static void line_wrap_off(void)
 #if CONF_SERIAL_CONSOLE_ANSI
     bconout_str(1, "\033[7l");
 #endif
-    v_stat_0 &= ~M_CEOL;    /* clear the eol handling bit */
+    lineaVars.console_cellSystemStatus &= ~M_CEOL;    /* clear the eol handling bit */
 }
 
 
@@ -821,7 +820,7 @@ static void line_wrap_off(void)
 static void ascii_cr(void)
 {
     /* beginning of current line */
-    move_cursor(0, v_cur_cy);
+    move_cursor(0, lineaVars.cursor_currentY);
 }
 
 
@@ -831,7 +830,7 @@ static void ascii_cr(void)
 static void ascii_lf(void)
 {
     /* at bottom of screen? */
-    if ( v_cur_cy != v_cel_my )
+    if ( lineaVars.cursor_currentY != lineaVars.font_cellRowNbMinus1 )
         cursor_down_impl();
     else {
         cursor_off();                   /* yes, hide cursor */
@@ -849,27 +848,27 @@ static void ascii_lf(void)
 void blink(void)
 {
     /* test visibility/semaphore bit */
-    if (!(v_stat_0 & M_CVIS) )
+    if (!(lineaVars.console_cellSystemStatus & M_CVIS) )
         return;    /* if invisible or blocked, return */
 
     /* test flash bit */
-    if (!(v_stat_0 & M_CFLASH) )
+    if (!(lineaVars.console_cellSystemStatus & M_CFLASH) )
         return;    /* if not flashing, return */
 
     /* decrement cursor flash timer */
-    if ( --v_cur_tim )
+    if ( --lineaVars.cursor_blinkTimer )
         return;    /* if <> 0, return */
 
-    v_cur_tim = v_period;       /* else reset timer */
+    lineaVars.cursor_blinkTimer = lineaVars.cursor_blinkRate;       /* else reset timer */
 
     /* toggle cursor state */
-    if ( v_stat_0 & M_CSTATE )
-        v_stat_0 &= ~M_CSTATE;    /* clear bit (overwrite) */
+    if ( lineaVars.console_cellSystemStatus & M_CSTATE )
+        lineaVars.console_cellSystemStatus &= ~M_CSTATE;    /* clear bit (overwrite) */
     else
-        v_stat_0 |= M_CSTATE;    /* set bit (overwrite) */
+        lineaVars.console_cellSystemStatus |= M_CSTATE;    /* set bit (overwrite) */
 
     /* fetch x and y coords and complement cursor */
-    invert_cell(v_cur_cx, v_cur_cy);
+    invert_cell(lineaVars.cursor_currentX, lineaVars.cursor_currentY);
 }
 
 
@@ -900,16 +899,16 @@ WORD cursconf(WORD function, WORD operand)
         cursor_on();                    /* set cursor visible */
         break;
     case 2:
-        v_stat_0 &= ~M_CFLASH;          /* unset cursor flash bit */
+        lineaVars.console_cellSystemStatus &= ~M_CFLASH;          /* unset cursor flash bit */
         break;
     case 3:
-        v_stat_0 |= M_CFLASH;           /* set cursor flash bit */
+        lineaVars.console_cellSystemStatus |= M_CFLASH;           /* set cursor flash bit */
         break;
     case 4:
-        v_period = LOBYTE(operand);     /* set cursor flash interval */
+        lineaVars.cursor_blinkRate = LOBYTE(operand);     /* set cursor flash interval */
         break;
     case 5:
-        return(v_period);               /* set cursor flash interval */
+        return(lineaVars.cursor_blinkRate);               /* set cursor flash interval */
     }
     return 0;
 }
@@ -924,28 +923,28 @@ void vt52_init(void)
     font_set_default();
 
     /* Initial cursor settings */
-    v_cur_cx = 0;                       /* cursor to column 0, row 0 */
-    v_cur_cy = 0;
-    v_cur_of = 0;                       /* line offset is 0 */
-    v_cur_ad = v_bas_ad;                /* set cursor to start of screen */
+    lineaVars.cursor_currentX = 0;                       /* cursor to column 0, row 0 */
+    lineaVars.cursor_currentY = 0;
+    lineaVars.cursor_offset = 0;                       /* line offset is 0 */
+    lineaVars.cursor_address = v_bas_ad;                /* set cursor to start of screen */
 
-    v_stat_0 = M_CFLASH;                /* cursor invisible, flash, nowrap, normal video */
+    lineaVars.console_cellSystemStatus = M_CFLASH;                /* cursor invisible, flash, nowrap, normal video */
     cursconf(4, 30);                    /* 0.5 second blink rate (@ 60Hz vblank) */
-    v_cur_tim = v_period;               /* load initial value to blink timer */
-    disab_cnt = 1;                      /* cursor disabled 1 level deep */
+    lineaVars.cursor_blinkTimer = lineaVars.cursor_blinkRate;               /* load initial value to blink timer */
+    lineaVars.cursor_disableCount = 1;                      /* cursor disabled 1 level deep */
 
     /* set foreground color depending on color depth */
-    switch (v_planes) {
+    switch (lineaVars.screen_planeNb) {
     case 1:
-        v_col_fg = 1;
+        lineaVars.color_foreground = 1;
         break;
     case 2:
-        v_col_fg = 3;
+        lineaVars.color_foreground = 3;
         break;
     default:
-        v_col_fg = 15;
+        lineaVars.color_foreground = 15;
     }
-    v_col_bg = 0;
+    lineaVars.color_background = 0;
 
     con_state = normal_ascii;           /* Init conout state machine */
 

@@ -31,6 +31,7 @@
 #include "has.h"
 #include "biosext.h"
 #include "miscutil.h"
+#include "vdi/vdi_api.h"
 
 #include "gemgsxif.h"
 #include "gemdosif.h"
@@ -171,7 +172,7 @@ LONG init_p0_stkptr(void)
 /*
  *  return pointer to default mouse form
  */
-MFORM *default_mform(void)
+MFORM *aes_Mouse_getDefaultForm(void)
 {
     return mouse_cursor[ARROW];
 }

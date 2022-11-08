@@ -12,7 +12,7 @@
 
 #include "emutos.h"
 #include "natfeat.h"
-#include "lineavars.h"
+#include "vdi/vdi_interface.h"
 
 #if DETECT_NATIVE_FEATURES
 
@@ -172,7 +172,7 @@ void nf_setlinea(void)
 
     if(hasNF) {
         if(nfid_config) {
-            if (NFCall(nfid_config | 0x0004, line_a_vars) >= 0)
+            if (NFCall(nfid_config | 0x0004, &lineaVars.base) >= 0)
                 err = FALSE;
         }
         if (err) {

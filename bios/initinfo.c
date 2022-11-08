@@ -37,10 +37,10 @@
 #include "initinfo.h"
 #include "conout.h"
 #include "../bdos/bdosstub.h"
-#include "lineavars.h"
+#include "vdi/vdi_interface.h"
 
 /* Screen width, in characters, as signed value */
-#define SCREEN_WIDTH ((WORD)v_cel_mx + 1)
+#define SCREEN_WIDTH ((WORD)lineaVars.font_cellColumnNbMinus1 + 1)
 
 #if FULL_INITINFO
 
@@ -266,7 +266,7 @@ static void cprintf_bytesize(ULONG bytes)
  */
 WORD initinfo(ULONG *pshiftbits)
 {
-    int screen_height = v_cel_my + 1;
+    int screen_height = lineaVars.font_cellRowNbMinus1 + 1;
     int initinfo_height = 19; /* Define ENABLE_KDEBUG to guess correct value */
     int top_margin;
 #ifdef ENABLE_KDEBUG
@@ -365,7 +365,7 @@ WORD initinfo(ULONG *pshiftbits)
 
 #ifdef ENABLE_KDEBUG
     /* We need +1 because the previous line is not ended with CRLF */
-    actual_initinfo_height = v_cur_cy + 1 - top_margin;
+    actual_initinfo_height = linea_Cursor_currentY + 1 - top_margin;
     if (actual_initinfo_height == initinfo_height)
         KDEBUG(("initinfo_height is correct\n"));
     else

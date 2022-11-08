@@ -19,7 +19,7 @@
 #include "tosvars.h"
 #include "bios.h"
 #include "biosext.h"
-#include "../vdi/vdistub.h"
+#include "vdi/vdi_api.h"
 
 #if DBG_BALLOC
 static BOOL bmem_allowed;
@@ -56,7 +56,7 @@ void bmem_init(void)
     KDEBUG(("        _data = %p\n", _data));
     KDEBUG(("       _edata = %p\n", _edata));
     KDEBUG(("         _bss = %p\n", _bss));
-    KDEBUG(("   _endvdibss = %p\n", _endvdibss));
+    KDEBUG(("   _vdi_bss_end = %p\n", _vdi_bss_end));
     KDEBUG(("        _ebss = %p\n", _ebss));
     KDEBUG(("       stkbot = %p\n", stkbot));
     KDEBUG(("       stktop = %p\n", stktop));

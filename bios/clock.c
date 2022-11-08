@@ -882,7 +882,7 @@ static WORD nvram_getregs(struct clkreg *clk)
     clk->months = get_nvram_rtc(NVRAM_RTC_MONTHS);
     clk->years = get_nvram_rtc(NVRAM_RTC_YEARS);
 
-    set_sr(old_sr);
+    set_sr_only(old_sr);
 
     KDEBUG(("nvram_getregs(): %02d/%02d/%02d  %02d:%02d:%02d\n",
             clk->years, clk->months, clk->days, clk->hours, clk->minutes, clk->seconds));

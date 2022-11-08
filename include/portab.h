@@ -89,6 +89,12 @@
 #endif
 
 /*
+ * Forced inlines are necessary for some critically optimized functions.
+ * In these situations we do not want that the compiler takes the decision for us.
+ */
+#define forceinline __attribute__((always_inline)) static __inline__
+
+/*
  *  Constants
  */
 

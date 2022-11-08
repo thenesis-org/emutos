@@ -20,7 +20,7 @@
 #include "emutos.h"
 #include "tosvars.h"
 #include "bios.h"
-#include "lineavars.h"
+#include "vdi/vdi_interface.h"
 #include "ikbd.h"
 #include "mouse.h"
 #include "vectors.h"

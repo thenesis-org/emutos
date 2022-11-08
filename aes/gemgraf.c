@@ -24,7 +24,6 @@
 #include "aesdefs.h"
 #include "aesext.h"
 #include "intmath.h"
-#include "funcdef.h"
 #include "gemdos.h"
 
 #include "gemgraf.h"
@@ -208,7 +207,7 @@ void gsx_attr(UWORD text, UWORD mode, UWORD color)
     contrl[6] = gl_handle;
     if (mode != gl_mode)
     {
-        contrl[0] = SET_WRITING_MODE;
+        contrl[0] = vdi_Function_setWritingMode;
         intin[0] = gl_mode = mode;
         gsx2();
     }
@@ -218,7 +217,7 @@ void gsx_attr(UWORD text, UWORD mode, UWORD color)
     {
         if (color != gl_tcolor)
         {
-            contrl[0] = SET_TEXT_COLOR;
+            contrl[0] = vdi_Function_setTextColor;
             gl_tcolor = color;
         }
     }
@@ -226,7 +225,7 @@ void gsx_attr(UWORD text, UWORD mode, UWORD color)
     {
         if (color != gl_lcolor)
         {
-            contrl[0] = SET_LINE_COLOR;
+            contrl[0] = vdi_Function_setLineColor;
             gl_lcolor = color;
         }
     }
@@ -519,7 +518,7 @@ void gsx_tblt(WORD tb_f, WORD x, WORD y, WORD tb_nc)
         y += gl_hsptschar;
     }
 
-    contrl[0] = TEXT;
+    contrl[0] = vdi_Function_drawText;
     contrl[1] = 1;
     contrl[6] = gl_handle;
     ptsin[0] = x;

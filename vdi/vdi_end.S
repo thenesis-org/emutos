@@ -12,5 +12,5 @@
         .bss
 
 // This label is referred by the OSHEADER
-        .globl  __endvdibss
-__endvdibss:
+        .globl  __vdi_bss_end
+__vdi_bss_end:

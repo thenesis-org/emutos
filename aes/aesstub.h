@@ -12,7 +12,7 @@
 #include "aesdefs.h"
 
 /* returns default mouse form . Used by VDI. */
-MFORM *default_mform(void);
+MFORM *aes_Mouse_getDefaultForm(void);
 
 /* AES entry point */
 void ui_start(void) NORETURN;   /* found in aes/gemstart.S */

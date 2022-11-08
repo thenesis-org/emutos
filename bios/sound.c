@@ -104,7 +104,7 @@ LONG giaccess(WORD data, WORD reg)
         PSG->data = data;
     }
     value = PSG->control;
-    set_sr(old_sr);
+    set_sr_only(old_sr);
 
     return value;
 #else
@@ -123,7 +123,7 @@ void ongibit(WORD data)
     tmp = PSG->control;
     tmp |= data;
     PSG->data = tmp;
-    set_sr(old_sr);
+    set_sr_only(old_sr);
 #endif
 }
 
@@ -138,7 +138,7 @@ void offgibit(WORD data)
     tmp = PSG->control;
     tmp &= data;
     PSG->data = tmp;
-    set_sr(old_sr);
+    set_sr_only(old_sr);
 #endif
 }
 

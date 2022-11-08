@@ -17,7 +17,7 @@
 #include <stdarg.h>
 #include "doprintf.h"
 #include "nls.h"
-#include "lineavars.h"
+#include "vdi/vdi_interface.h"
 #include "vt52.h"
 #include "conout.h"
 #include "tosvars.h"
@@ -505,9 +505,9 @@ void dopanic(const char *fmt, ...)
     proc_enum = (proc_enum << 24) | ((LONG)pc & 0xffffffL);
 
     /* improve display in ST Low */
-    start = (v_cel_mx == 39) ? "" : " ";
-    wrap = v_stat_0 & M_CEOL;       /* remember line wrap status */
-    v_stat_0 &= ~M_CEOL;            /*  & disable it             */
+    start = (lineaVars.font_cellColumnNbMinus1 == 39) ? "" : " ";
+    wrap = lineaVars.console_cellSystemStatus & M_CEOL;       /* remember line wrap status */
+    lineaVars.console_cellSystemStatus &= ~M_CEOL;            /*  & disable it             */
 
     kcprintf("\nD0-3:%s%08lx %08lx %08lx %08lx\n",
              start, proc_dregs[0], proc_dregs[1], proc_dregs[2], proc_dregs[3]);
@@ -544,7 +544,7 @@ void dopanic(const char *fmt, ...)
 #endif
 
     if (wrap)
-        v_stat_0 |= M_CEOL;         /* restore line wrap status */
+        lineaVars.console_cellSystemStatus |= M_CEOL;         /* restore line wrap status */
 
     if (run)
     {
@@ -558,9 +558,9 @@ void dopanic(const char *fmt, ...)
 
     /* allow interrupts so we get keypresses */
 #if CONF_WITH_ATARI_VIDEO
-    set_sr(0x2300);
+    set_sr_only(0x2300);
 #else
-    set_sr(0x2000);
+    set_sr_only(0x2000);
 #endif
     while(bconstat2())      /* eat any pending ones */
         bconin2();

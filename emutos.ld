@@ -105,7 +105,7 @@ SECTIONS
     {
         __low_stram_start = .;
         obj/lowstram.o(.bss COMMON)
-        obj/lineavars.o(.bss COMMON)
+        obj/vdi_linea_vars.o(.bss COMMON)
         __low_stram_end = .;
         ASSERT(ABSOLUTE(_shifty) < 0x8000, "error: bad _shifty address");
         ASSERT((ABSOLUTE(_dskbuf) & 3) == 0, "error: bad _dskbuf alignment");

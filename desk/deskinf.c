@@ -314,14 +314,14 @@ static WORD dr_fnode(UWORD last_state, UWORD curr_state, WORD x, WORD y,
     char temp[LEN_FNODE];
 
     if ((last_state ^ curr_state) & SELECTED)
-        bb_fill(MD_XOR, FIS_SOLID, IP_SOLID, x, y, w, h);
+        bb_fill(vdi_WritingMode_xor, vdi_FillingStyle_solid, IP_SOLID, x, y, w, h);
     else
     {
         len = format_fnode(fnode, temp);    /* convert to text */
-        gsx_attr(TRUE, MD_TRANS, BLACK);
+        gsx_attr(TRUE, vdi_WritingMode_transparent, BLACK);
         expand_string(intin, temp);
         gsx_tblt(IBM, x, y, len);
-        gsx_attr(FALSE, MD_XOR, BLACK);
+        gsx_attr(FALSE, vdi_WritingMode_xor, BLACK);
     }
 
     return curr_state;

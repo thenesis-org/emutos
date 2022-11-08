@@ -18,7 +18,6 @@
 #include "string.h"
 #include "obdefs.h"
 #include "aesext.h"
-#include "funcdef.h"
 
 #include "gemdos.h"
 #include "geminput.h"
@@ -190,21 +189,21 @@ static void gsx_wsopen(void)
 
 void gsx_wsclose(void)
 {
-    gsx_0code(CLOSE_WORKSTATION);
+    gsx_0code(vdi_Function_closeWorkstation);
 }
 
 
 
 void gsx_wsclear(void)
 {
-    gsx_0code(CLEAR_WORKSTATION);
+    gsx_0code(vdi_Function_clearWorkstation);
 }
 
 
 
 void ratinit(void)
 {
-    gsx_1code(SHOW_CUR, 0);
+    gsx_1code(vdi_Function_showCursor, 0);
     gl_moff = 0;
 }
 
@@ -219,16 +218,16 @@ void ratexit(void)
 static void gsx_setmb(PFVOID boff, PFVOID moff, PFVOID *pdrwaddr)
 {
     i_ptr( boff );
-    gsx_0code(BUT_VECX);
+    gsx_0code(vdi_Function_setMouseButtonVector);
     m_lptr2( &old_bcode );
 
     i_ptr( moff );
-    gsx_0code(MOT_VECX);
+    gsx_0code(vdi_Function_setMouseMoveVector);
     m_lptr2( &old_mcode );
 
 /* not used in Atari GEM:
     i_ptr( just_rts );
-    gsx_ncode(CUR_VECX, 0, 0);
+    gsx_ncode(vdi_Function_setMouseDrawingVector, 0, 0);
     m_lptr2( pdrwaddr );
 */
 }
@@ -238,14 +237,14 @@ static void gsx_setmb(PFVOID boff, PFVOID moff, PFVOID *pdrwaddr)
 static void gsx_resetmb(void)
 {
     i_ptr( (void*)old_bcode );
-    gsx_0code(BUT_VECX);
+    gsx_0code(vdi_Function_setMouseButtonVector);
 
     i_ptr( (void*)old_mcode );
-    gsx_0code(MOT_VECX);
+    gsx_0code(vdi_Function_setMouseMoveVector);
 
 /* not used in Atari GEM:
     i_ptr( (void*)drwaddr );
-    gsx_ncode(CUR_VECX, 0, 0);
+    gsx_ncode(vdi_Function_setMouseDrawingVector, 0, 0);
 */
 }
 
@@ -269,7 +268,7 @@ void gsx_init(void)
     gsx_wsopen();
     gsx_start();
     gsx_setmb(far_bcha, far_mcha, &drwaddr);
-    gsx_0code(MOUSE_STATE);
+    gsx_0code(vdi_Function_queryMouseState);
     xrat = ptsout[0];
     yrat = ptsout[1];
 
@@ -303,13 +302,13 @@ void gsx_graphic(BOOL tographic)
         if (gl_graphic)
         {
             contrl[5] = 2;
-            gsx_0code(ESCAPE_FUNCTION);
+            gsx_0code(vdi_Function_escape);
             gsx_setmb(far_bcha, far_mcha, &drwaddr);
         }
         else
         {
             contrl[5] = 3;
-            gsx_0code(ESCAPE_FUNCTION);
+            gsx_0code(vdi_Function_escape);
             gsx_resetmb();
         }
     }
@@ -397,7 +396,7 @@ void bb_restore(GRECT *pr)
 WORD gsx_tick(void *tcode, void *ptsave)
 {
     i_ptr( tcode );
-    gsx_0code(TIM_VECX);
+    gsx_0code(vdi_Function_setTimerVector);
     m_lptr2( ptsave );
     return(intout[0]);
 }
@@ -415,7 +414,7 @@ void gsx_mfset(const MFORM *pmfnew)
         gl_mouse = *pmfnew;
     }
     memcpy(intin, (void *)pmfnew, sizeof(MFORM));
-    gsx_ncode(SET_CUR_FORM, 0, sizeof(MFORM)/sizeof(WORD));
+    gsx_ncode(vdi_Function_setCurrentForm, 0, sizeof(MFORM)/sizeof(WORD));
     gsx_mon();
 }
 
@@ -431,7 +430,7 @@ void gsx_mxmy(WORD *pmx, WORD *pmy)
 
 WORD gsx_kstate(void)
 {
-    gsx_0code(KEY_STATE);
+    gsx_0code(vdi_Function_getKeyboardState);
     return(intout[0]);
 }
 
@@ -440,7 +439,7 @@ WORD gsx_kstate(void)
 void gsx_moff(void)
 {
     if (!gl_moff)
-        gsx_0code(HIDE_CUR);
+        gsx_0code(vdi_Function_hideCursor);
 
     gl_moff++;
 }
@@ -451,7 +450,7 @@ void gsx_mon(void)
 {
     gl_moff--;
     if (!gl_moff)
-        gsx_1code(SHOW_CUR, 1);
+        gsx_1code(vdi_Function_showCursor, 1);
 }
 
 
@@ -460,11 +459,11 @@ WORD gsx_char(void)
 {
     intin[0] = 4;
     intin[1] = 2;
-    gsx_ncode(SET_INPUT_MODE, 0, 2);
+    gsx_ncode(vdi_Function_setInputMode, 0, 2);
 
     intin[0] = -1;
     intin[1] = FALSE;        /* no echo */
-    gsx_ncode(STRING_INPUT, FALSE, 2);
+    gsx_ncode(vdi_Function_getString, FALSE, 2);
     if (contrl[4])
         return(intout[0]);
     else
@@ -485,10 +484,10 @@ void gsx_setmousexy(WORD x, WORD y)
 {
     intin[0] = 1;
     intin[1] = 2;
-    gsx_ncode(SET_INPUT_MODE, 0, 2);    /* sample mode */
+    gsx_ncode(vdi_Function_setInputMode, 0, 2);    /* sample mode */
     ptsin[0] = x;
     ptsin[1] = y;
-    gsx_ncode(LOCATOR_INPUT, 1, 0);     /* vsm_locator() */
+    gsx_ncode(vdi_Function_setLocatorInput, 1, 0);     /* vsm_locator() */
 }
 
 
@@ -496,7 +495,7 @@ void gsx_setmousexy(WORD x, WORD y)
 /* Get the number of planes (or bit depth) of the current screen */
 WORD gsx_nplanes(void)
 {
-    gsx_1code(EXTENDED_INQUIRE, 1);
+    gsx_1code(vdi_Function_inquireExtended, 1);
     return intout[4];
 }
 
@@ -504,7 +503,7 @@ WORD gsx_nplanes(void)
 /* Get text size info */
 void gsx_textsize(WORD *charw, WORD *charh, WORD *cellw, WORD *cellh)
 {
-    gsx_0code(INQ_TEXT_ATTRIBUTES);
+    gsx_0code(vdi_Function_getTextAttributes);
     *charw = ptsout[0];
     *charh = ptsout[1];
     *cellw = ptsout[2];
@@ -557,7 +556,7 @@ static void v_opnwk(WORD *pwork_in, WORD *phandle, WS *pwork_out)
     i_ptsout( ptsptr );     /* set ptsout to work_out array */
     i_intin( pwork_in );    /* set intin to point to callers data  */
     i_intout( (WORD *)pwork_out ); /* set intout to point to callers data */
-    gsx_ncode(OPEN_WORKSTATION, 0, 11);
+    gsx_ncode(vdi_Function_openWorkstation, 0, 11);
 
     *phandle = contrl[6];
     i_intin( intin );
@@ -573,7 +572,7 @@ static void v_opnwk(WORD *pwork_in, WORD *phandle, WS *pwork_out)
 void v_pline(WORD count, WORD *pxyarray)
 {
     i_ptsin( pxyarray );
-    gsx_ncode(POLYLINE, count, 0);
+    gsx_ncode(vdi_Function_drawPolyline, count, 0);
     i_ptsin( ptsin );
 }
 
@@ -582,7 +581,7 @@ void vs_clip(WORD clip_flag, WORD *pxyarray )
 {
     i_ptsin( pxyarray );
     intin[0] = clip_flag;
-    gsx_ncode(TEXT_CLIP, 2, 1);
+    gsx_ncode(vdi_Function_setClipRegion, 2, 1);
     i_ptsin(ptsin);
 }
 
@@ -592,7 +591,7 @@ void vst_height(WORD height, WORD *pchr_width, WORD *pchr_height,
 {
     ptsin[0] = 0;
     ptsin[1] = height;
-    gsx_ncode(SET_CHAR_HEIGHT, 1, 0);
+    gsx_ncode(vdi_Function_setCharHeight, 1, 0);
     *pchr_width = ptsout[0];
     *pchr_height = ptsout[1];
     *pcell_width = ptsout[2];
@@ -604,7 +603,7 @@ void vst_height(WORD height, WORD *pchr_width, WORD *pchr_height,
 void vr_recfl(WORD *pxyarray)
 {
     i_ptsin( pxyarray );
-    gsx_ncode(FILL_RECTANGLE, 2, 0);
+    gsx_ncode(vdi_Function_fillRectangle, 2, 0);
     i_ptsin( ptsin );
 }
 
@@ -616,7 +615,7 @@ void vro_cpyfm(WORD wr_mode, WORD *pxyarray, FDB *psrcMFDB, FDB *pdesMFDB )
     i_ptr( psrcMFDB );
     i_ptr2( pdesMFDB );
     i_ptsin( pxyarray );
-    gsx_ncode(COPY_RASTER_OPAQUE, 4, 1);
+    gsx_ncode(vdi_Function_copyOpaqueRaster, 4, 1);
     i_ptsin( ptsin );
 }
 
@@ -631,7 +630,7 @@ void vrt_cpyfm(WORD wr_mode, WORD *pxyarray, FDB *psrcMFDB, FDB *pdesMFDB,
     i_ptr( psrcMFDB );
     i_ptr2( pdesMFDB );
     i_ptsin( pxyarray );
-    gsx_ncode(COPY_RASTER_TRANS, 4, 3);
+    gsx_ncode(vdi_Function_copyTransparentRaster, 4, 3);
     i_ptsin( ptsin );
 }
 
@@ -642,7 +641,7 @@ void vrn_trnfm(FDB *psrcMFDB, FDB *pdesMFDB)
     i_ptr( psrcMFDB );
     i_ptr2( pdesMFDB );
 
-    gsx_0code(TRANSFORM_FORM);
+    gsx_0code(vdi_Function_transformForm);
 }
 
 
@@ -654,7 +653,7 @@ void vsl_width(WORD width)
 {
     ptsin[0] = width;
     ptsin[1] = 0;
-    gsx_ncode(SET_LINE_WIDTH, 1, 0);
+    gsx_ncode(vdi_Function_setLineWidth, 1, 0);
 }
 
 
@@ -663,7 +662,7 @@ void vsl_width(WORD width)
 void vex_wheelv(PFVOID new, PFVOID *old)
 {
     i_ptr(new);
-    gsx_0code(WHEEL_VECX);
+    gsx_0code(vdi_Function_setMouseWheelVector);
     m_lptr2(old);
 }
 #endif

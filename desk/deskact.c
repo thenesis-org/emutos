@@ -217,7 +217,7 @@ static WORD gr_bwait(GRECT *po, WORD mx, WORD my, WORD numpts, Point *xylnpts,
      * station, we have to reset the clipping and drawing mode here
      */
     gsx_sclip(&gl_rscreen);
-    gsx_attr(FALSE, MD_XOR, BLACK);
+    gsx_attr(FALSE, vdi_WritingMode_xor, BLACK);
 
     /* draw old */
     gr_plns(po->g_x, po->g_y, numpts, xylnpts, numobs, xyobpts);

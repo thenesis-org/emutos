@@ -55,7 +55,7 @@ _getwh:
 #else
         .dc.w   0xa000                  // lineA init
 #endif
-        move.l  -44(a0),d0              // v_cel_mx/v_cel_my
+        move.l  -44(a0),d0              // linea.font_cellColumnNbMinus1/linea.font_cellRowNbMinus1
         movea.l (sp)+,a2
         rts
 
@@ -67,7 +67,7 @@ _getht:
         .dc.w   0xa000                  // lineA init
 #endif
         moveq   #0,d0
-        move.w  -46(a0),d0              // v_cel_ht
+        move.w  -46(a0),d0              // linea.font_cellHeight
         movea.l (sp)+,a2
         rts
 

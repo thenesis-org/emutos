@@ -6,7 +6,9 @@
  * This file is distributed under the GPL, version 2 or at your
  * option any later version.  See doc/license.txt for details.
  */
-
+#ifndef intmath_h
+#define intmath_h
+  
 ULONG Isqrt(ULONG x);
 
 /*
@@ -118,3 +120,5 @@ static __inline__ UWORD divu(ULONG d1, UWORD d2)
 
     return (UWORD)d1;
 }
+
+#endif

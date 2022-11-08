@@ -1426,7 +1426,7 @@ static UBYTE set_psg_porta(UBYTE n)
     a = (old_a & 0xf8) | (n & 0x07);/* remove old drive & side bits, insert new */
 
     PSG->data = a;
-    set_sr(old_sr);
+    set_sr_only(old_sr);
 
     return old_a & 0x07;
 }

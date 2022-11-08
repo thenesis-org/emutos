@@ -17,7 +17,7 @@
 #include "font.h"
 #include "country.h"
 #include "string.h"
-#include "lineavars.h"
+#include "vdi/vdi_interface.h"
 
 /* RAM-copies of the ROM-fontheaders */
 Fonthead fon8x16;
@@ -52,7 +52,7 @@ void font_init(void)
      * calculate DEV_TAB[5] and font_count correctly.
      */
     fon8x8.next_font = &fon8x16;
-    font_count = 1;     /* number of different font ids in font_ring[] */
+    lineaVars.text_fontCount = 1;     /* number of different font ids in lineaVars.text_fontRing[] */
 
     /* Initialize the system font array for linea */
 
@@ -71,18 +71,16 @@ void font_init(void)
 
 void font_set_default(void)
 {
-    Fonthead *font;
+    Fonthead *font = (lineaVars.screen_height < 400) ? &fon8x8 : &fon8x16;
 
-    font = (V_REZ_VT < 400) ? &fon8x8 : &fon8x16;
+    lineaVars.font_cellHeight = font->form_height;
+    lineaVars.font_cellLineSize = lineaVars.screen_lineSize2 * font->form_height;
+    lineaVars.font_cellColumnNbMinus1 = (lineaVars.screen_width / font->max_cell_width) - 1;
+    lineaVars.font_cellRowNbMinus1 = (lineaVars.screen_height / font->form_height) - 1;
 
-    v_cel_ht = font->form_height;
-    v_cel_wr = v_lin_wr * font->form_height;
-    v_cel_mx = (V_REZ_HZ / font->max_cell_width) - 1;
-    v_cel_my = (V_REZ_VT / font->form_height) - 1;
-
-    v_fnt_wr = font->form_width;
-    v_fnt_st = font->first_ade;
-    v_fnt_nd = font->last_ade;
-    v_fnt_ad = font->dat_table;
-    v_off_ad = font->off_table;
+    lineaVars.font_cellWrap = font->form_width;
+    lineaVars.font_firstAsciiCode = font->first_ade;
+    lineaVars.font_lastAsciiCode = font->last_ade;
+    lineaVars.font_address = font->dat_table;
+    lineaVars.font_offsetTable = font->off_table;
 }

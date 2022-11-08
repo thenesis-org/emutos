@@ -18,6 +18,8 @@
 #ifndef GSXDEFS_H
 #define GSXDEFS_H
 
+#include "obdefs.h"
+
 typedef struct wsstr
 {
         WORD            ws_xres;

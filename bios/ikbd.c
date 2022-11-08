@@ -29,7 +29,7 @@
 #include "acia.h"
 #include "tosvars.h"
 #include "biosext.h"
-#include "lineavars.h"
+#include "vdi/vdi_interface.h"
 #include "iorec.h"
 #include "asm.h"
 #include "ikbd.h"
@@ -273,7 +273,7 @@ LONG bconin2(void)
     value = *(ULONG_ALIAS *) (ikbdiorec.buf + ikbdiorec.head);
 
     /* restore interrupts */
-    set_sr(old_sr);
+    set_sr_only(old_sr);
 #endif /* CONF_SERIAL_CONSOLE_POLLING_MODE */
 
     if (!(conterm & 8))         /* shift status not wanted? */
