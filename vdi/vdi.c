@@ -6368,6 +6368,7 @@ static void vdi_Gdp_drawJustifiedText(vdi_VirtualWorkstation * vwk) {
 }
 
 static void vdi_vst_load_fonts(vdi_VirtualWorkstation * vwk) {
+    WORD count = 0; /* If no GDOS, we loaded no new fonts */
 #if CONF_WITH_GDOS
     /* Init some common variables */
     WORD *control = lineaVars.CONTRL;
@@ -6392,7 +6393,6 @@ static void vdi_vst_load_fonts(vdi_VirtualWorkstation * vwk) {
 
     /* Find out how many distinct font id numbers have just been linked in. */
     WORD id = -1;
-    WORD count = 0;
     do {
         /* Update the count of font id numbers, if necessary. */
         if (first_font->font_id != id) {
@@ -6413,15 +6413,16 @@ static void vdi_vst_load_fonts(vdi_VirtualWorkstation * vwk) {
 
     /* Update the device table count of faces. */
     vwk->num_fonts += count;
-    lineaVars.INTOUT[0] = count;
-#else
-    lineaVars.INTOUT[0] = 0; /* we loaded no new fonts */
+
+    lineaVars.text_fontRing[2] = vwk->loaded_fonts;
 #endif
+    lineaVars.INTOUT[0] = count;
 }
 
 static void vdi_vst_unload_fonts(vdi_VirtualWorkstation * vwk) {
 #if CONF_WITH_GDOS
     /* Since we always unload all fonts, this is easy. */
+    lineaVars.text_fontRing[2] = NULL;
     vwk->loaded_fonts = NULL;           /* No fonts installed */
     vwk->scrpt2 = vdi_Text_scratchBufferOffset;    /* Reset pointers to default buffers */
     vwk->scrtchp = vdi_sharedBuffer.common.deftxbuf;
@@ -8663,7 +8664,6 @@ static bool vdi_Driver_enterScreen(Linea *linea, vdi_Contrl *contrl) {
         linea->writingMode = vwk->wrt_mode;
         linea->clipping_enabled = vwk->clippingEnabled;
         linea->clipping_rect = vwk->clippingRect;
-        linea->text_fontRing[2] = vwk->loaded_fonts;
         linea->workstation_current = vwk;
     }
     return yFlipped;
