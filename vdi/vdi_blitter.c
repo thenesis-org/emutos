@@ -136,13 +136,12 @@ static void vdi_Blitter_fillRectangle(const vdi_FillingInfos * RESTRICT fi, cons
 #if CONF_WITH_VDI_VERTLINE
 
 // The setup time is so high that is it worth using the blitter for a few words ?
-static void vdi_Blitter_drawVerticalLine(const Line * RESTRICT line, WORD mode, UWORD color, bool lastLineFlag) {
+static UWORD vdi_Blitter_drawVerticalLine(const Line * RESTRICT line, WORD mode, UWORD color, UWORD lineMask, bool lastLineFlag) {
     vdi_FillingInfos fi;
     if (vdi_setupVerticalLine(line, lastLineFlag, mode, &fi))
-        return;
+        return lineMask;
 
     WORD startLine;
-    UWORD lineMask = lineaVars.line_mask;
     UBYTE hop;
     if (lineMask == 0xffff) {
         startLine = 0;
@@ -160,7 +159,6 @@ static void vdi_Blitter_drawVerticalLine(const Line * RESTRICT line, WORD mode, 
             startLine = 0;
         }
         rolw(lineMask, fi.height & 0xf);
-        lineaVars.line_mask = lineMask; // Update lineaVars.line_mask for next time.
         hop = HOP_HALFTONE_ONLY;
     }
 
@@ -191,6 +189,8 @@ static void vdi_Blitter_drawVerticalLine(const Line * RESTRICT line, WORD mode, 
     } LOOP_WHILE(planeIndex);
     
     invalidate_data_cache(dst, size);
+    
+    return lineMask;
 }
 
 #endif
@@ -200,14 +200,13 @@ static void vdi_Blitter_drawVerticalLine(const Line * RESTRICT line, WORD mode, 
 //--------------------------------------------------------------------------------
 #if CONF_WITH_VDI_HORILINE
 
-static void vdi_Blitter_drawHorizontalLine(const Line * RESTRICT line, WORD mode, UWORD color, bool lastLineFlag) {
+static UWORD vdi_Blitter_drawHorizontalLine(const Line * RESTRICT line, WORD mode, UWORD color, UWORD lineMask, bool lastLineFlag) {
     vdi_FillingInfos fi;
     if (vdi_setupHorizontalLine(line, lastLineFlag, mode, &fi))
-        return;
+        return lineMask;
     
     flush_data_cache(fi.addr, fi.stride);
 
-    UWORD lineMask = lineaVars.line_mask;
     BLITTER->src_x_inc = 0;
     BLITTER->endmask_1 = fi.leftMask & lineMask;
     BLITTER->endmask_2 = lineMask;
@@ -229,6 +228,8 @@ static void vdi_Blitter_drawHorizontalLine(const Line * RESTRICT line, WORD mode
     } LOOP_WHILE(plane);
        
     invalidate_data_cache(fi.addr, fi.stride);
+    
+    return lineMask;
 }
 
 #endif

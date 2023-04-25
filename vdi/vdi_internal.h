@@ -352,10 +352,10 @@ typedef struct {
 typedef struct vdi_Driver_ {
     void (*fillRectangle)(const vdi_FillingInfos * RESTRICT b, const VwkAttrib * RESTRICT attr);
 
-    void (*drawLine)(const Line * RESTRICT line, WORD mode, UWORD color, bool lastLineFlag);
-    void (*drawGeneralLine)(const Line * RESTRICT line, WORD mode, UWORD color, bool lastLineFlag);
-    void (*drawVerticalLine)(const Line * RESTRICT line, WORD mode, UWORD color, bool lastLineFlag);
-    void (*drawHorizontalLine)(const Line * RESTRICT line, WORD mode, UWORD color, bool lastLineFlag);
+    UWORD (*drawLine)(const Line * RESTRICT line, WORD mode, UWORD color, UWORD lineMask, bool lastLineFlag);
+    UWORD (*drawGeneralLine)(const Line * RESTRICT line, WORD mode, UWORD color, UWORD lineMask, bool lastLineFlag);
+    UWORD (*drawVerticalLine)(const Line * RESTRICT line, WORD mode, UWORD color, UWORD lineMask, bool lastLineFlag);
+    UWORD (*drawHorizontalLine)(const Line * RESTRICT line, WORD mode, UWORD color, UWORD lineMask, bool lastLineFlag);
     
     void (*blit)(const vdi_BlitParameters * RESTRICT blit_info);
     void (*blitAll)(const vdi_BlitParameters * RESTRICT blit_info, BLIT * RESTRICT blt);
@@ -365,10 +365,10 @@ typedef struct vdi_Driver_ {
 
 void vdi_Soft_fillRectangle(const vdi_FillingInfos * RESTRICT b, const VwkAttrib * RESTRICT attr);
 
-void vdi_Soft_drawLine(const Line *line, WORD mode, UWORD color, bool lastLineFlag);
-void vdi_Soft_drawGeneralLine(const Line *line, WORD mode, UWORD color, bool lastLineFlag);
-void vdi_Soft_drawVerticalLine(const Line *line, WORD mode, UWORD color, bool lastLineFlag);
-void vdi_Soft_drawHorizontalLine(const Line *line, WORD mode, UWORD color, bool lastLineFlag);
+UWORD vdi_Soft_drawLine(const Line *line, WORD mode, UWORD color, UWORD lineMask, bool lastLineFlag);
+UWORD vdi_Soft_drawGeneralLine(const Line *line, WORD mode, UWORD color, UWORD lineMask, bool lastLineFlag);
+UWORD vdi_Soft_drawVerticalLine(const Line *line, WORD mode, UWORD color, UWORD lineMask, bool lastLineFlag);
+UWORD vdi_Soft_drawHorizontalLine(const Line *line, WORD mode, UWORD color, UWORD lineMask, bool lastLineFlag);
 
 void vdi_Soft_blit(const vdi_BlitParameters *blit_info);
 void vdi_Soft_blitAll(const vdi_BlitParameters *blit_info, BLIT * RESTRICT blt);

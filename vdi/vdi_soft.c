@@ -891,12 +891,11 @@ forceinline void vdi_Soft_drawHorizontalLineTemplate(const vdi_FillingInfos * RE
 }
 
 vdi_Soft_drawHorizontalLineOpti
-void vdi_Soft_drawHorizontalLine(const Line * RESTRICT line, WORD mode, UWORD color, bool lastLineFlag) {
+UWORD vdi_Soft_drawHorizontalLine(const Line * RESTRICT line, WORD mode, UWORD color, UWORD lineMask, bool lastLineFlag) {
     vdi_FillingInfos fi;
     if (vdi_setupHorizontalLine(line, lastLineFlag, mode, &fi))
-        return;
+        return lineMask;
     
-    UWORD lineMask = lineaVars.line_mask;
     #if vdi_Soft_drawHorizontalLine_version_lineMaskSpecialized
     if (lineMask == 0xffff)
         vdi_Soft_drawHorizontalLineTemplate(&fi, mode, color, 0xffff, true, vdi_Soft_drawHorizontalLine_version_multiPlaneSpecialized, vdi_Soft_drawHorizontalLine_version_opSpecialized);
@@ -907,10 +906,10 @@ void vdi_Soft_drawHorizontalLine(const Line * RESTRICT line, WORD mode, UWORD co
    #endif
         {
             rolw(lineMask, fi.width & 0xf);
-            lineaVars.line_mask = lineMask; // Update lineaVars.line_mask for next time.
         }
         vdi_Soft_drawHorizontalLineTemplate(&fi, mode, color, lineMask, false, vdi_Soft_drawHorizontalLine_version_multiPlaneSpecialized, vdi_Soft_drawHorizontalLine_version_opSpecialized);
     }
+    return lineMask;
 }
 
 #endif
@@ -1612,17 +1611,17 @@ forceinline UWORD vdi_Soft_drawVerticalLineModeTemplate(WORD mode, UWORD color, 
 }
 
 vdi_Soft_drawVerticalLineOpti
-void vdi_Soft_drawVerticalLine(const Line * RESTRICT line, WORD mode, UWORD color, bool lastLineFlag) {
+UWORD vdi_Soft_drawVerticalLine(const Line * RESTRICT line, WORD mode, UWORD color, UWORD lineMask, bool lastLineFlag) {
     vdi_FillingInfos fi;
     if (vdi_setupVerticalLine(line, lastLineFlag, mode, &fi))
-        return;
+        return lineMask;
     UWORD shift = line->x1 & 0xf;
     UWORD bitMask = 0x8000 >> shift;
-    UWORD lineMask = lineaVars.line_mask;
     if (vdi_Soft_drawVerticalLine_version_lineMaskSpecialized && lineMask == 0xffff)
         vdi_Soft_drawVerticalLineModeTemplate(mode, color, 0xffff, fi.planeNb, bitMask, fi.addr, fi.stride, fi.height, true, vdi_Soft_drawVerticalLine_version_colorSpecialized, vdi_Soft_drawVerticalLine_version_multiPlaneSpecialized, vdi_Soft_drawVerticalLine_version_opSpecialized);
     else
-        lineaVars.line_mask = vdi_Soft_drawVerticalLineModeTemplate(mode, color, lineMask, fi.planeNb, bitMask, fi.addr, fi.stride, fi.height, false, vdi_Soft_drawVerticalLine_version_colorSpecialized, vdi_Soft_drawVerticalLine_version_multiPlaneSpecialized, vdi_Soft_drawVerticalLine_version_opSpecialized);
+        lineMask = vdi_Soft_drawVerticalLineModeTemplate(mode, color, lineMask, fi.planeNb, bitMask, fi.addr, fi.stride, fi.height, false, vdi_Soft_drawVerticalLine_version_colorSpecialized, vdi_Soft_drawVerticalLine_version_multiPlaneSpecialized, vdi_Soft_drawVerticalLine_version_opSpecialized);
+    return lineMask;
 }
 
 #endif
@@ -2037,7 +2036,7 @@ forceinline UWORD vdi_Soft_drawGeneralLineModeTemplate(WORD mode, UWORD color, b
 }
 
 vdi_Soft_drawGeneralLineOpti
-void vdi_Soft_drawGeneralLine(const Line *line, WORD mode, UWORD color, bool lastLineFlag) {
+UWORD vdi_Soft_drawGeneralLine(const Line *line, WORD mode, UWORD color, UWORD lineMask, bool lastLineFlag) {
     WORD x1 = line->x1, x2 = line->x2, y1 = line->y1, y2 = line->y2;
     // Always draw from left to right.
     if (x1 > x2) {
@@ -2066,11 +2065,11 @@ void vdi_Soft_drawGeneralLine(const Line *line, WORD mode, UWORD color, bool las
     char *dst = (char*)vdi_getPixelAddress(x1, y1);
     UWORD bit = 0x8000 >> (x1 & 0xf); // Initial bit position.
     WORD planeNb = lineaVars.screen_planeNb, dstStrideX = planeNb << 1;
-    UWORD lineMask = lineaVars.line_mask;
     if (vdi_Soft_drawGeneralLine_version_lineMaskSpecialized && lineMask == 0xffff)
         vdi_Soft_drawGeneralLineModeTemplate(mode, color, lastLineFlag, 0xffff, planeNb, bit, dst, dstStrideX, dstStrideY, dx, dy, true, vdi_Soft_drawGeneralLine_version_opSpecialized, vdi_Soft_drawGeneralLine_version_multiPlaneSpecialized, vdi_Soft_drawGeneralLine_version_opSpecialized);
     else
-        lineaVars.line_mask = vdi_Soft_drawGeneralLineModeTemplate(mode, color, lastLineFlag, lineMask, planeNb, bit, dst, dstStrideX, dstStrideY, dx, dy, false, vdi_Soft_drawGeneralLine_version_opSpecialized, vdi_Soft_drawGeneralLine_version_multiPlaneSpecialized, vdi_Soft_drawGeneralLine_version_opSpecialized);
+        lineMask = vdi_Soft_drawGeneralLineModeTemplate(mode, color, lastLineFlag, lineMask, planeNb, bit, dst, dstStrideX, dstStrideY, dx, dy, false, vdi_Soft_drawGeneralLine_version_opSpecialized, vdi_Soft_drawGeneralLine_version_multiPlaneSpecialized, vdi_Soft_drawGeneralLine_version_opSpecialized);
+    return lineMask;
 }
 
 //--------------------------------------------------------------------------------
@@ -2078,20 +2077,25 @@ void vdi_Soft_drawGeneralLine(const Line *line, WORD mode, UWORD color, bool las
 // It handles all cases and chooses a specialized version if possible.
 // Can be replaced if a driver prefers to specialized by itself.
 //--------------------------------------------------------------------------------
-void vdi_Soft_drawLine(const Line *line, WORD mode, UWORD color, bool lastLineFlag) {
+UWORD vdi_Soft_drawLine(const Line *line, WORD mode, UWORD color, UWORD lineMask, bool lastLineFlag) {
     const vdi_Driver *driver = vdi_getDriver();
     #if CONF_WITH_VDI_VERTLINE
     if (line->x1 == line->x2)
-        driver->drawVerticalLine(line, mode, color, lastLineFlag);
+        lineMask = driver->drawVerticalLine(line, mode, color, lineMask, lastLineFlag);
     else
     #endif   
     #if CONF_WITH_VDI_HORILINE
     if (line->y1 == line->y2)
-        driver->drawHorizontalLine(line, mode, color, lastLineFlag);
+        lineMask = driver->drawHorizontalLine(line, mode, color, lineMask, lastLineFlag);
     else
     #endif
-        driver->drawGeneralLine(line, mode, color, lastLineFlag);
+        lineMask = driver->drawGeneralLine(line, mode, color, lineMask, lastLineFlag);
+    return lineMask;
 }
+
+//********************************************************************************
+// Circle.
+//********************************************************************************
 
 //********************************************************************************
 // Blitting.

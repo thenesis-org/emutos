@@ -1466,7 +1466,9 @@ static void vdi_Line_drawHorizontal(const Line *line, WORD wrt_mode, UWORD color
  * @return lineaVars.line_mask rotated to proper alignment with x coordinate of line end.
  */
 static void vdi_Line_draw(const Line *line, WORD mode, UWORD color, bool lastLineFlag) {
-    vdi_getDriver()->drawLine(line, mode, color, lastLineFlag);
+    UWORD lineMask = lineaVars.line_mask;
+    lineMask = vdi_getDriver()->drawLine(line, mode, color, lineMask, lastLineFlag);
+    lineaVars.line_mask = lineMask; // Update lineaVars.line_mask for next time.
 }
 
 /**
@@ -3290,8 +3292,6 @@ static void vdi_v_contourfill(vdi_VirtualWorkstation * vwk) {
 /*
  * The following is a modified version of a blitter emulator, with the HOP
  * processing removed since it is always called with a HOP value of 2 (source).
- * When generating all cases separately, this generates about 10K of code.
- * But by using self-modifying code, this should be divided by 4, so giving less than 2.5K of code.
  */
 static void vdi_BitBlt_blit(vdi_BlitParameters *blit_info) {
     vdi_getDriver()->blit(blit_info);
@@ -6756,18 +6756,17 @@ static void vdi_Gdp_drawRoundedBox(vdi_VirtualWorkstation *vwk) {
 
 // Major opcode for graphics device primitives.
 static void vdi_v_gdp(vdi_VirtualWorkstation * vwk) {
-    WORD *xy = lineaVars.PTSIN;
-
     switch (lineaVars.parameters.contrl->subOpcode) {
     case vdi_GdpType_bar: /* GDP BAR - converted to alpha 2 RJG 12-1-84 */
         vdi_vr_recfl(vwk);
         if (vwk->fill_per) {
             lineaVars.line_mask = 0xffff;
-            xy[5] = xy[7] = xy[3];
-            xy[3] = xy[9] = xy[1];
-            xy[4] = xy[2];
-            xy[6] = xy[8] = xy[0];
-            vdi_Line_drawPoly(vwk, (Point*)lineaVars.PTSIN, 5, vwk->fill_color);
+            WORD *ptsin = lineaVars.PTSIN;
+            ptsin[5] = ptsin[7] = ptsin[3];
+            ptsin[3] = ptsin[9] = ptsin[1];
+            ptsin[4] = ptsin[2];
+            ptsin[6] = ptsin[8] = ptsin[0];
+            vdi_Line_drawPoly(vwk, (Point*)ptsin, 5, vwk->fill_color);
         }
         break;
 
