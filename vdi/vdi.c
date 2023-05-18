@@ -1452,6 +1452,16 @@ static void vdi_Line_drawHorizontal(const Line *line, WORD wrt_mode, UWORD color
  * "not" modes, resulting in faster execution of their inner loops.
  */
 
+static void vdi_Line_drawStart(vdi_DrawContext * RESTRICT dc, WORD mode, UWORD color) {
+    dc->mode = mode;
+    dc->color = color;
+    dc->line.mask = lineaVars.line_mask;
+}
+
+static void vdi_Line_drawEnd(vdi_DrawContext * RESTRICT dc) {
+    lineaVars.line_mask = dc->line.mask;
+}
+
 /**
  * Draw a line.
  * @param line Pointer to structure containing coordinates.
@@ -1466,9 +1476,12 @@ static void vdi_Line_drawHorizontal(const Line *line, WORD wrt_mode, UWORD color
  * @return lineaVars.line_mask rotated to proper alignment with x coordinate of line end.
  */
 static void vdi_Line_draw(const Line *line, WORD mode, UWORD color, bool lastLineFlag) {
-    UWORD lineMask = lineaVars.line_mask;
-    lineMask = vdi_getDriver()->drawLine(line, mode, color, lineMask, lastLineFlag);
-    lineaVars.line_mask = lineMask; // Update lineaVars.line_mask for next time.
+    vdi_DrawContext dc;
+    vdi_Line_drawStart(&dc, mode, color);
+    dc.line.line = *line;
+    dc.line.lastFlag = lastLineFlag;
+    vdi_getDriver()->drawLine(&dc);
+    vdi_Line_drawEnd(&dc);
 }
 
 /**
@@ -1476,15 +1489,17 @@ static void vdi_Line_draw(const Line *line, WORD mode, UWORD color, bool lastLin
  * We pass the colour, since this routine is also used for perimeters, which are drawn in the fill colour.
  */
 static void vdi_Line_drawPoly(vdi_VirtualWorkstation * RESTRICT vwk, const Point * RESTRICT point, int count, WORD color) {
+    vdi_DrawContext dc;
+    vdi_Line_drawStart(&dc, vwk->wrt_mode, color);
     for (int i = count - 1; i > 0; i--) {
-        Line line;
-        line.p[0] = *point;
-        point++;
-        line.p[1] = *point;
-        if (vwk->clippingEnabled && vdi_Line_clip(&vwk->clippingRect, &line))
+        dc.line.line.p[0] = *point++;
+        dc.line.line.p[1] = *point;
+        if (vwk->clippingEnabled && vdi_Line_clip(&vwk->clippingRect, &dc.line.line))
             continue;
-        vdi_Line_draw(&line, vwk->wrt_mode, color, i == 1);
+        dc.line.lastFlag = i == 1;
+        vdi_getDriver()->drawLine(&dc);
     }
+    vdi_Line_drawEnd(&dc);
 }
 
 static void vdi_vsl_udsty(vdi_VirtualWorkstation * vwk) {
@@ -2335,16 +2350,16 @@ static void vdi_Bezier_drawSegments(vdi_VirtualWorkstation * vwk, WORD nr_vertic
         if (mode == vdi_Bezier_Mode_fill) {
             vdi_Polygon_fill(vwk, point, nr_vertices);
         } else {
+            vdi_DrawContext dc;
+            vdi_Line_drawStart(&dc, vwk->wrt_mode, vwk->line_color);
+            dc.line.lastLineFlag = false;
             for (WORD i = nr_vertices - 1; i > 0; i--) {
-                Line line;
-                line.x1 = point->x;
-                line.y1 = point->y;
-                point++;                /* advance point by point */
-                line.x2 = point->x;
-                line.y2 = point->y;
+                dc.line.line.p[0] = *point++;
+                dc.line.line.p[1] = *point;
                 if (!vwk->clippingEnabled || !vdi_Line_clip(&vwk->clippingRect, &line))
-                    vdi_Line_draw(&line, vwk->wrt_mode, vwk->line_color, false);
+                    vdi_getDriver()->drawLine(&dc);
             }
+            vdi_Line_drawEnd(&dc);
         }
     }
 }
@@ -5714,37 +5729,35 @@ static void vdi_Text_output(vdi_VirtualWorkstation *vwk, WORD count, WORD *str, 
     } /* for j */
 
     if (vwk->style & vdi_TextStyle_underscored) {
-        Line * line = (Line*)lineaVars.PTSIN;
-        line->x1 = startx;
-        line->y1 = starty;
+        vdi_DrawContext dc;
+        vdi_Line_drawStart(&dc, vwk->wrt_mode, vwk->text_color);
+        dc.line.lastFlag = false;
+        dc.line.mask = (vwk->style & vdi_TextStyle_light) ? fnt_ptr->lighten : 0xffff; // Overwrite line-A line mask.
 
+        Line line;
+        line.x1 = startx;
+        line.y1 = starty;
         if ((vwk->chup == 900) || (vwk->chup == 2700)) {
-            line->x2 = line->x1;
-            line->y2 = lineaVars.text_destinationY;
+            line.x2 = line.x1;
+            line.y2 = lineaVars.text_destinationY;
         } else {
-            line->x2 = lineaVars.text_destinationX;
-            line->y2 = line->y1;
+            line.x2 = lineaVars.text_destinationX;
+            line.y2 = line.y1;
         }
 
-        lineaVars.line_mask = (vwk->style & vdi_TextStyle_light) ? fnt_ptr->lighten : 0xffff;
-
-        // TODO: Check if the lines are connected and only draw once per segment.
         count = fnt_ptr->ul_size;
         for (WORD i = 0; i < count; i++) {
-            if (vwk->clippingEnabled) {
-                Line lineClipped = *line;
-                if (!vdi_Line_clip(&vwk->clippingRect, &lineClipped))
-                    vdi_Line_draw(&lineClipped, vwk->wrt_mode, vwk->text_color, false);
-            } else
-                vdi_Line_draw(line, vwk->wrt_mode, vwk->text_color, false);
-
-            line->x1 += xfact;
-            line->x2 += xfact;
-            line->y1 += yfact;
-            line->y2 += yfact;
-
-            rorw1(lineaVars.line_mask);
+            dc.line.line = line;
+            if (!vwk->clippingEnabled || !vdi_Line_clip(&vwk->clippingRect, &dc.line.line))
+                vdi_getDriver()->drawLine(&dc);
+            line.x1 += xfact;
+            line.x2 += xfact;
+            line.y1 += yfact;
+            line.y2 += yfact;
+            rorw1(dc.line.mask);
         }
+        
+        vdi_Line_drawEnd(&dc);
     }
 }
 

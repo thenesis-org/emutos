@@ -201,6 +201,21 @@ forceinline ULONG mergePixel32(ULONG pixelsOld, ULONG pixelsNew, ULONG mask) {
 }
 
 //--------------------------------------------------------------------------------
+// DrawContext.
+//--------------------------------------------------------------------------------
+typedef struct vdi_DrawContext_ {
+    UWORD mode;
+    UWORD color;
+    union {
+        struct {
+            Line line;
+            UWORD mask;
+            bool lastFlag;
+        } line;
+    };
+} vdi_DrawContext;
+
+//--------------------------------------------------------------------------------
 // FillingInfos.
 //--------------------------------------------------------------------------------
 typedef struct {
@@ -295,39 +310,39 @@ forceinline UWORD doPixelOpWithMask(WORD op, UWORD s, UWORD d, UWORD mask) {
 //--------------------------------------------------------------------------------
 // Line tools.
 //--------------------------------------------------------------------------------
-forceinline bool vdi_setupHorizontalLine(const Line *line, bool lastLineFlag, WORD mode, vdi_FillingInfos * RESTRICT fi) {
-    WORD x1 = line->x1, x2 = line->x2;
+forceinline bool vdi_setupHorizontalLine(vdi_DrawContext * RESTRICT dc, vdi_FillingInfos * RESTRICT fi) {
+    WORD x1 = dc->line.line.x1, x2 = dc->line.line.x2;
     if (x1 > x2) { WORD t = x1; x1 = x2; x2 = t; }
     #if vdi_drawLine_lastLineLegacy
     // Copy a DRI kludge: if we're in XOR mode, avoid XORing intermediate points in a polyline.
     // We do it slightly differently than DRI with slightly differing results - but it's a kludge in either case.
-    if (mode == WM_XOR && !lastLineFlag && x1 != x2)
+    if (dc->mode == WM_XOR && !dc->line.lastFlag && x1 != x2)
         x2--;
     #else
-    x2 -= !lastLineFlag;
+    x2 -= !dc->line.lastFlag;
     if (x1 > x2)
         return true;
     #endif
-    vdi_FillingInfos_setup(fi, x1, x2, line->y1, line->y1);
+    vdi_FillingInfos_setup(fi, x1, x2, dc->line.line.y1, dc->line.line.y1);
     return false;
 }
 
-forceinline bool vdi_setupVerticalLine(const Line *line, bool lastLineFlag, WORD mode, vdi_FillingInfos * RESTRICT fi) {
+forceinline bool vdi_setupVerticalLine(vdi_DrawContext * RESTRICT dc, vdi_FillingInfos * RESTRICT fi) {
     WORD dstStride = lineaVars.screen_lineSize2;
-    WORD h = line->y2 - line->y1;
+    WORD h = dc->line.line.y2 - dc->line.line.y1;
     if (h < 0) { h = -h; dstStride = -dstStride; }
     #if vdi_drawLine_lastLineLegacy
     // Copy a DRI kludge: if we're in XOR mode, avoid XORing intermediate points in a polyline.
     // We do it slightly differently than DRI with slightly differing results - but it's a kludge in either case.
-    if (mode == WM_XOR && !lastLineFlag && h > 0)
+    if (dc->mode == WM_XOR && !dc->line.lastFlag && h > 0)
         h--;
     #else
-    h -= !lastLineFlag;
+    h -= !dc->line.lastFlag;
     if (h < 0)
         return true;
     #endif
     fi->height = h + 1;
-    fi->addr = vdi_getPixelAddress(line->x1, line->y1);
+    fi->addr = vdi_getPixelAddress(dc->line.line.x1, dc->line.line.y1);
     fi->stride = dstStride;
     fi->planeNb = lineaVars.screen_planeNb;
     return false;
@@ -352,10 +367,10 @@ typedef struct {
 typedef struct vdi_Driver_ {
     void (*fillRectangle)(const vdi_FillingInfos * RESTRICT b, const VwkAttrib * RESTRICT attr);
 
-    UWORD (*drawLine)(const Line * RESTRICT line, WORD mode, UWORD color, UWORD lineMask, bool lastLineFlag);
-    UWORD (*drawGeneralLine)(const Line * RESTRICT line, WORD mode, UWORD color, UWORD lineMask, bool lastLineFlag);
-    UWORD (*drawVerticalLine)(const Line * RESTRICT line, WORD mode, UWORD color, UWORD lineMask, bool lastLineFlag);
-    UWORD (*drawHorizontalLine)(const Line * RESTRICT line, WORD mode, UWORD color, UWORD lineMask, bool lastLineFlag);
+    void (*drawLine)(vdi_DrawContext * RESTRICT dc);
+    void (*drawGeneralLine)(vdi_DrawContext * RESTRICT dc);
+    void (*drawVerticalLine)(vdi_DrawContext * RESTRICT dc);
+    void (*drawHorizontalLine)(vdi_DrawContext * RESTRICT dc);
     
     void (*blit)(const vdi_BlitParameters * RESTRICT blit_info);
     void (*blitAll)(const vdi_BlitParameters * RESTRICT blit_info, BLIT * RESTRICT blt);
@@ -365,10 +380,10 @@ typedef struct vdi_Driver_ {
 
 void vdi_Soft_fillRectangle(const vdi_FillingInfos * RESTRICT b, const VwkAttrib * RESTRICT attr);
 
-UWORD vdi_Soft_drawLine(const Line *line, WORD mode, UWORD color, UWORD lineMask, bool lastLineFlag);
-UWORD vdi_Soft_drawGeneralLine(const Line *line, WORD mode, UWORD color, UWORD lineMask, bool lastLineFlag);
-UWORD vdi_Soft_drawVerticalLine(const Line *line, WORD mode, UWORD color, UWORD lineMask, bool lastLineFlag);
-UWORD vdi_Soft_drawHorizontalLine(const Line *line, WORD mode, UWORD color, UWORD lineMask, bool lastLineFlag);
+void vdi_Soft_drawLine(vdi_DrawContext * RESTRICT dc);
+void vdi_Soft_drawGeneralLine(vdi_DrawContext * RESTRICT dc);
+void vdi_Soft_drawVerticalLine(vdi_DrawContext * RESTRICT dc);
+void vdi_Soft_drawHorizontalLine(vdi_DrawContext * RESTRICT dc);
 
 void vdi_Soft_blit(const vdi_BlitParameters *blit_info);
 void vdi_Soft_blitAll(const vdi_BlitParameters *blit_info, BLIT * RESTRICT blt);

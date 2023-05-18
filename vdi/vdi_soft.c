@@ -891,11 +891,15 @@ forceinline void vdi_Soft_drawHorizontalLineTemplate(const vdi_FillingInfos * RE
 }
 
 vdi_Soft_drawHorizontalLineOpti
-UWORD vdi_Soft_drawHorizontalLine(const Line * RESTRICT line, WORD mode, UWORD color, UWORD lineMask, bool lastLineFlag) {
+void vdi_Soft_drawHorizontalLine(vdi_DrawContext * RESTRICT dc) {
     vdi_FillingInfos fi;
-    if (vdi_setupHorizontalLine(line, lastLineFlag, mode, &fi))
-        return lineMask;
-    
+    if (vdi_setupHorizontalLine(dc, &fi))
+        return;
+
+    WORD mode = dc->mode;
+    UWORD color = dc->color;
+    UWORD lineMask = dc->line.mask;
+        
     #if vdi_Soft_drawHorizontalLine_version_lineMaskSpecialized
     if (lineMask == 0xffff)
         vdi_Soft_drawHorizontalLineTemplate(&fi, mode, color, 0xffff, true, vdi_Soft_drawHorizontalLine_version_multiPlaneSpecialized, vdi_Soft_drawHorizontalLine_version_opSpecialized);
@@ -903,13 +907,13 @@ UWORD vdi_Soft_drawHorizontalLine(const Line * RESTRICT line, WORD mode, UWORD c
     #else
     {
         if (lineMask != 0x0000 && lineMask != 0xffff)
-   #endif
+    #endif
         {
             rolw(lineMask, fi.width & 0xf);
+            dc->line.mask = lineMask;
         }
         vdi_Soft_drawHorizontalLineTemplate(&fi, mode, color, lineMask, false, vdi_Soft_drawHorizontalLine_version_multiPlaneSpecialized, vdi_Soft_drawHorizontalLine_version_opSpecialized);
     }
-    return lineMask;
 }
 
 #endif
@@ -1611,17 +1615,20 @@ forceinline UWORD vdi_Soft_drawVerticalLineModeTemplate(WORD mode, UWORD color, 
 }
 
 vdi_Soft_drawVerticalLineOpti
-UWORD vdi_Soft_drawVerticalLine(const Line * RESTRICT line, WORD mode, UWORD color, UWORD lineMask, bool lastLineFlag) {
+void vdi_Soft_drawVerticalLine(vdi_DrawContext * RESTRICT dc) {
     vdi_FillingInfos fi;
-    if (vdi_setupVerticalLine(line, lastLineFlag, mode, &fi))
-        return lineMask;
-    UWORD shift = line->x1 & 0xf;
+    if (vdi_setupVerticalLine(dc, &fi))
+        return;
+
+    UWORD mode = dc->mode;
+    UWORD color = dc->color;
+    UWORD lineMask = dc->line.mask;
+    UWORD shift = dc->line.line.x1 & 0xf;
     UWORD bitMask = 0x8000 >> shift;
     if (vdi_Soft_drawVerticalLine_version_lineMaskSpecialized && lineMask == 0xffff)
         vdi_Soft_drawVerticalLineModeTemplate(mode, color, 0xffff, fi.planeNb, bitMask, fi.addr, fi.stride, fi.height, true, vdi_Soft_drawVerticalLine_version_colorSpecialized, vdi_Soft_drawVerticalLine_version_multiPlaneSpecialized, vdi_Soft_drawVerticalLine_version_opSpecialized);
     else
-        lineMask = vdi_Soft_drawVerticalLineModeTemplate(mode, color, lineMask, fi.planeNb, bitMask, fi.addr, fi.stride, fi.height, false, vdi_Soft_drawVerticalLine_version_colorSpecialized, vdi_Soft_drawVerticalLine_version_multiPlaneSpecialized, vdi_Soft_drawVerticalLine_version_opSpecialized);
-    return lineMask;
+        dc->line.mask = vdi_Soft_drawVerticalLineModeTemplate(mode, color, lineMask, fi.planeNb, bitMask, fi.addr, fi.stride, fi.height, false, vdi_Soft_drawVerticalLine_version_colorSpecialized, vdi_Soft_drawVerticalLine_version_multiPlaneSpecialized, vdi_Soft_drawVerticalLine_version_opSpecialized);
 }
 
 #endif
@@ -2036,14 +2043,16 @@ forceinline UWORD vdi_Soft_drawGeneralLineModeTemplate(WORD mode, UWORD color, b
 }
 
 vdi_Soft_drawGeneralLineOpti
-UWORD vdi_Soft_drawGeneralLine(const Line *line, WORD mode, UWORD color, UWORD lineMask, bool lastLineFlag) {
-    WORD x1 = line->x1, x2 = line->x2, y1 = line->y1, y2 = line->y2;
+void vdi_Soft_drawGeneralLine(vdi_DrawContext * RESTRICT dc) {
+    WORD x1 = dc->line.line.x1, x2 = dc->line.line.x2, y1 = dc->line.line.y1, y2 = dc->line.line.y2;
     // Always draw from left to right.
     if (x1 > x2) {
         WORD xt = x1; x1 = x2; x2 = xt;
         WORD yt = y1; y1 = y2; y2 = yt;
     }
 
+    UWORD mode = dc->mode;
+    bool lastLineFlag = dc->line.lastFlag;
     #if vdi_drawLine_lastLineLegacy
     // Copy a DRI kludge: if we're in XOR mode, avoid XORing intermediate points in a polyline.
     // We do it slightly differently than DRI with slightly differing results - but it's a kludge in either case.
@@ -2065,11 +2074,12 @@ UWORD vdi_Soft_drawGeneralLine(const Line *line, WORD mode, UWORD color, UWORD l
     char *dst = (char*)vdi_getPixelAddress(x1, y1);
     UWORD bit = 0x8000 >> (x1 & 0xf); // Initial bit position.
     WORD planeNb = lineaVars.screen_planeNb, dstStrideX = planeNb << 1;
+    UWORD color = dc->color;
+    UWORD lineMask = dc->line.mask;
     if (vdi_Soft_drawGeneralLine_version_lineMaskSpecialized && lineMask == 0xffff)
         vdi_Soft_drawGeneralLineModeTemplate(mode, color, lastLineFlag, 0xffff, planeNb, bit, dst, dstStrideX, dstStrideY, dx, dy, true, vdi_Soft_drawGeneralLine_version_opSpecialized, vdi_Soft_drawGeneralLine_version_multiPlaneSpecialized, vdi_Soft_drawGeneralLine_version_opSpecialized);
     else
-        lineMask = vdi_Soft_drawGeneralLineModeTemplate(mode, color, lastLineFlag, lineMask, planeNb, bit, dst, dstStrideX, dstStrideY, dx, dy, false, vdi_Soft_drawGeneralLine_version_opSpecialized, vdi_Soft_drawGeneralLine_version_multiPlaneSpecialized, vdi_Soft_drawGeneralLine_version_opSpecialized);
-    return lineMask;
+        dc->line.mask = vdi_Soft_drawGeneralLineModeTemplate(mode, color, lastLineFlag, lineMask, planeNb, bit, dst, dstStrideX, dstStrideY, dx, dy, false, vdi_Soft_drawGeneralLine_version_opSpecialized, vdi_Soft_drawGeneralLine_version_multiPlaneSpecialized, vdi_Soft_drawGeneralLine_version_opSpecialized);
 }
 
 //--------------------------------------------------------------------------------
@@ -2077,20 +2087,19 @@ UWORD vdi_Soft_drawGeneralLine(const Line *line, WORD mode, UWORD color, UWORD l
 // It handles all cases and chooses a specialized version if possible.
 // Can be replaced if a driver prefers to specialized by itself.
 //--------------------------------------------------------------------------------
-UWORD vdi_Soft_drawLine(const Line *line, WORD mode, UWORD color, UWORD lineMask, bool lastLineFlag) {
+void vdi_Soft_drawLine(vdi_DrawContext * RESTRICT dc) {
     const vdi_Driver *driver = vdi_getDriver();
     #if CONF_WITH_VDI_VERTLINE
-    if (line->x1 == line->x2)
-        lineMask = driver->drawVerticalLine(line, mode, color, lineMask, lastLineFlag);
+    if (dc->line.line.x1 == dc->line.line.x2)
+        driver->drawVerticalLine(dc);
     else
     #endif   
     #if CONF_WITH_VDI_HORILINE
-    if (line->y1 == line->y2)
-        lineMask = driver->drawHorizontalLine(line, mode, color, lineMask, lastLineFlag);
+    if (dc->line.line.y1 == dc->line.line.y2)
+        driver->drawHorizontalLine(dc);
     else
     #endif
-        lineMask = driver->drawGeneralLine(line, mode, color, lineMask, lastLineFlag);
-    return lineMask;
+        driver->drawGeneralLine(dc);
 }
 
 //********************************************************************************

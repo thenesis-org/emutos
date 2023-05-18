@@ -136,13 +136,14 @@ static void vdi_Blitter_fillRectangle(const vdi_FillingInfos * RESTRICT fi, cons
 #if CONF_WITH_VDI_VERTLINE
 
 // The setup time is so high that is it worth using the blitter for a few words ?
-static UWORD vdi_Blitter_drawVerticalLine(const Line * RESTRICT line, WORD mode, UWORD color, UWORD lineMask, bool lastLineFlag) {
+static void vdi_Blitter_drawVerticalLine(vdi_DrawContext * RESTRICT dc) {
     vdi_FillingInfos fi;
-    if (vdi_setupVerticalLine(line, lastLineFlag, mode, &fi))
-        return lineMask;
+    if (vdi_setupVerticalLine(dc, &fi))
+        return;
 
     WORD startLine;
     UBYTE hop;
+    UWORD lineMask = dc->line.mask;
     if (lineMask == 0xffff) {
         startLine = 0;
         hop = HOP_ALL_ONES;
@@ -159,6 +160,7 @@ static UWORD vdi_Blitter_drawVerticalLine(const Line * RESTRICT line, WORD mode,
             startLine = 0;
         }
         rolw(lineMask, fi.height & 0xf);
+        dc->line.mask = lineMask;
         hop = HOP_HALFTONE_ONLY;
     }
 
@@ -170,7 +172,7 @@ static UWORD vdi_Blitter_drawVerticalLine(const Line * RESTRICT line, WORD mode,
     }
     flush_data_cache(dst, size);
 
-    BLITTER->endmask_1 = 0x8000 >> (line->x1 & 0x000f);
+    BLITTER->endmask_1 = 0x8000 >> (dc->line.line.x1 & 0x000f);
     BLITTER->endmask_2 = 0x0000;
     BLITTER->endmask_3 = 0x0000;
     BLITTER->dst_y_inc = fi.stride;
@@ -178,7 +180,8 @@ static UWORD vdi_Blitter_drawVerticalLine(const Line * RESTRICT line, WORD mode,
     BLITTER->hop = hop;
     BLITTER->skew = 0;
 
-    const UBYTE *blitterOp = vdi_Blitter_op[mode];
+    UWORD color = dc->color;
+    const UBYTE *blitterOp = vdi_Blitter_op[dc->mode];
     UWORD *dstPlane = (UWORD*)fi.addr;
     LOOP_DO(planeIndex, fi.planeNb) {
         BLITTER->dst_addr = dstPlane++;
@@ -189,8 +192,6 @@ static UWORD vdi_Blitter_drawVerticalLine(const Line * RESTRICT line, WORD mode,
     } LOOP_WHILE(planeIndex);
     
     invalidate_data_cache(dst, size);
-    
-    return lineMask;
 }
 
 #endif
@@ -200,24 +201,28 @@ static UWORD vdi_Blitter_drawVerticalLine(const Line * RESTRICT line, WORD mode,
 //--------------------------------------------------------------------------------
 #if CONF_WITH_VDI_HORILINE
 
-static UWORD vdi_Blitter_drawHorizontalLine(const Line * RESTRICT line, WORD mode, UWORD color, UWORD lineMask, bool lastLineFlag) {
+static void vdi_Blitter_drawHorizontalLine(vdi_DrawContext * RESTRICT dc) {
     vdi_FillingInfos fi;
-    if (vdi_setupHorizontalLine(line, lastLineFlag, mode, &fi))
-        return lineMask;
+    if (vdi_setupHorizontalLine(dc, &fi))
+        return;
     
     flush_data_cache(fi.addr, fi.stride);
 
     BLITTER->src_x_inc = 0;
+    UWORD lineMask = dc->line.mask;
     BLITTER->endmask_1 = fi.leftMask & lineMask;
     BLITTER->endmask_2 = lineMask;
     BLITTER->endmask_3 = fi.rightMask & lineMask;
+    rolw(lineMask, fi.width & 0xf);
+    dc->line.mask = lineMask;
     BLITTER->dst_x_inc = fi.planeNb  << 1;
     BLITTER->dst_y_inc = fi.stride - ((fi.wordNb - 1) << (vdi_planeNbToLeftShift[fi.planeNb] + 1));
     BLITTER->x_count = fi.wordNb;
     BLITTER->skew = 0;
     BLITTER->hop = HOP_ALL_ONES;
    
-    const UBYTE *blitterOp = vdi_Blitter_op[mode];
+    UWORD color = dc->color;
+    const UBYTE *blitterOp = vdi_Blitter_op[dc->mode];
     UWORD *dstPlane = fi.addr;
     LOOP_DO(plane, fi.planeNb) {
         BLITTER->dst_addr = dstPlane++;
@@ -228,8 +233,6 @@ static UWORD vdi_Blitter_drawHorizontalLine(const Line * RESTRICT line, WORD mod
     } LOOP_WHILE(plane);
        
     invalidate_data_cache(fi.addr, fi.stride);
-    
-    return lineMask;
 }
 
 #endif
