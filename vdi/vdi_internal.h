@@ -13,14 +13,12 @@
 #include <stdlib.h>
 #include <stdint.h>
 
-#define vdi_Soft_asmEnabled 1 // Enable or disable inline assembly.
-
+//********************************************************************************
+// Tools.
+//********************************************************************************
 //--------------------------------------------------------------------------------
-// Target specific loops.
+// Loops.
 //--------------------------------------------------------------------------------
-#define vdi_blitterOnly 0
-#define vdi_drawLine_lastLineLegacy 1
-
 #define LOOP_DO(counter, count) { WORD counter = (count) - 1; do // -1 so that the compiler can use dbra.
 #define LOOP_WHILE(counter) while (--counter != -1); } // Instead of "--plane >= 0" so that GCC generates a dbra.
 
@@ -29,6 +27,84 @@
 //#define LOOP_DBF_DO(counter, count, label) { WORD counter = count - 1; label:
 //#define LOOP_DBF_WHILE(counter, label) __asm__ goto ("dbra %0,%1\n\t" : : "d" (counter) :  : label); }
 
+//--------------------------------------------------------------------------------
+// Memory tools.
+//--------------------------------------------------------------------------------
+forceinline void copyWords(WORD n, const WORD *src, WORD *dst) {
+    LOOP_DO(i, n) {
+        *dst++ = *src++;
+    } LOOP_WHILE(i);
+}
+
+forceinline void copyLongs(WORD n, const LONG *src, LONG *dst) {
+    LOOP_DO(i, n) {
+        *dst++ = *src++;
+    } LOOP_WHILE(i);
+}
+
+//--------------------------------------------------------------------------------
+// Math tools.
+//--------------------------------------------------------------------------------
+forceinline WORD clipWord(WORD v, WORD vMin, WORD vMax) {
+    if (v < vMin) 
+        v = vMin;
+    if (v > vMax)
+        v = vMax;
+    return v;
+}
+
+forceinline WORD checkRangeWord(WORD v, WORD vMin, WORD vMax, WORD vDefault) {
+    if (v < vMin || v > vMax) 
+        v = vDefault;
+    return v;
+}
+
+/*
+ * Absolute for LONG
+ */
+forceinline LONG absLong(LONG x) {
+    return (x < 0) ? -x : x;
+}
+
+//--------------------------------------------------------------------------------
+// Geometric tools.
+//--------------------------------------------------------------------------------
+forceinline bool vdi_ClipRect_checkPointX(const ClippingRect *clippingRect, WORD x) {
+    return x < clippingRect->xMin || x > clippingRect->xMax;
+}
+
+forceinline bool vdi_ClipRect_checkPointY(const ClippingRect *clippingRect, WORD y) {
+    return y < clippingRect->yMin || y > clippingRect->yMax;
+}
+
+forceinline bool vdi_ClipRect_checkRect(const ClippingRect *clippingRect, WORD xMin, WORD yMin, WORD xMax, WORD yMax) {
+    return xMax < clippingRect->xMin || xMin > clippingRect->xMax || yMax < clippingRect->yMin || yMin > clippingRect->xMax;
+}
+
+// Coordinates must be sorted.
+bool vdi_ClipRect_clipSingleCoordinate(WORD xMin, WORD xMax, WORD *x);
+
+forceinline void vdi_Rect_sortX(Rect *rect) {
+    WORD x1 = rect->x1, x2 = rect->x2;
+    if (x1 > x2) { rect->x1 = x2; rect->x2 = x1; }
+}
+
+forceinline void vdi_Rect_sortY(Rect *rect) {
+    WORD y1 = rect->y1, y2 = rect->y2;
+    if (y1 > y2) { rect->y1 = y2; rect->y2 = y1; }
+}
+
+// Sort the corners. Raster (ll, ur) format is desired.
+void vdi_Rect_sortCorners(Rect *rect);
+
+// Clip a rectangle. Coordinates must be sorted.
+bool vdi_Rect_clip(Rect * RESTRICT rect, const ClippingRect * RESTRICT clip);
+
+void vdi_Line_sortVertices(Line *line);
+
+//********************************************************************************
+// Platform independent.
+//********************************************************************************
 //--------------------------------------------------------------------------------
 // Workstation.
 //--------------------------------------------------------------------------------
@@ -136,21 +212,217 @@ typedef struct {
 extern vdi_Context vdi_context;
 
 //--------------------------------------------------------------------------------
+// DrawContext.
+//--------------------------------------------------------------------------------
+// Common settings needed both by VDI and line-A raster operations, but being given through different means.
+struct vdi_RasterInfos {
+    ClippingRect *clippingRect;
+    bool clippingEnabled;
+    bool multifill;
+    bool transparent;
+};
+
+#define vdi_Line_maxWidth 40
+
+#define vdi_Circle_maxPixelAspectRatio 2 /* max expected value of vdi_deviceSizeX/vdi_deviceSizeY */
+#define vdi_Circle_maxLines ((vdi_Line_maxWidth * vdi_Circle_maxPixelAspectRatio) / 2 + 1)
+typedef struct {
+    WORD lineWidth;
+    WORD lineNb;
+    /*
+     * The following array holds values that allow vdi_WideLine_draw() to draw a rasterized circle.
+     * The values are actually those required for a quarter of the circle, specifically quadrant 1.
+     * [Quadrants are numbered 1-4, beginning with the "south-east" quadrant, and travelling clockwise].
+     *
+     * q_circle[n] contains the offset of the edge of the circle (from a vertical line through the centre of the circle),
+     * for the nth line (counting from a horizontal line through the centre of the circle).
+     */
+    WORD offsets[vdi_Circle_maxLines]; // Holds the circle DDA.
+} vdi_Circle;
+
+// TODO: This structure should replace / contain vdi_FillingInfos and VwkAttrib.
+// TODO: Separate common and device specific variables.
+typedef struct vdi_DrawContext_ {
+    // Pixel format.
+    UBYTE planeNb; // Number of planes.
+    UBYTE planeNbShift; // .
+
+    struct {
+        ClippingRect rect;
+        bool enabled;
+    } clipping;
+
+    UWORD mode; // Drawing mode.
+    UWORD color;
+    bool multiFill; // Multi-plane fill flag.
+
+    struct {
+        UWORD mask; // Pattern mask.
+        const UWORD *data; // Pattern data.
+    } pattern;
+
+    // Rectangle is common to most other primitives so it cannot be in the union.
+    Rect rect; // Coordinates must be ordered: x1 <= x2 and y1 <= y2.
+
+    // Line is common to several other primitives so it cannot be in the union.
+    struct {
+        Line line;
+        UWORD mask;
+        bool lastFlag;
+    } line;
+
+    // Primitives parameters (mutually exclusive).
+    union {
+        struct {
+            const Point *points;
+            WORD pointNb;
+            WORD currentY;
+        } polygon;
+        struct {
+            Point center;
+            // FIXME: Move this out ?
+            vdi_Circle *dda;
+        } disk;
+        struct {
+            WORD (*abort)(void);
+            WORD startX, startY;
+            WORD searchColor;
+        } seedFilling;
+    };
+
+    // Internal and device specific variables. TODO: Move this outside.
+
+    // Frame buffer. Should be moved outside because it is device specific.
+//    void *frameBuffer; // Framebuffer base address.
+//    WORD stride; // Distance in bytes between 2 destination lines.
+} vdi_DrawContext;
+
+forceinline void vdi_DrawContext_setupPlaneNb(vdi_DrawContext * RESTRICT dc) {
+    dc->planeNb = lineaVars.screen_planeNb;
+    dc->planeNbShift = vdi_context.planeNbShift;
+}
+
+forceinline void vdi_DrawContext_setupClipping(vdi_DrawContext * RESTRICT dc, const vdi_VirtualWorkstation * RESTRICT vwk) {
+    dc->clipping.enabled = vwk->clippingEnabled;
+    if (vwk->clippingEnabled)
+        dc->clipping.rect = vwk->clippingRect;
+    else
+        dc->clipping.rect = vdi_context.clippingRectFull;
+}
+
+forceinline void vdi_DrawContext_setupFilling(vdi_DrawContext * RESTRICT dc, const vdi_VirtualWorkstation * RESTRICT vwk, const UWORD color) {
+    dc->multiFill = vwk->multiFillEnabled;
+    dc->pattern.mask = vwk->patmsk;
+    dc->pattern.data = vwk->patptr;
+    dc->mode = vwk->wrt_mode;
+    dc->color = color;
+}
+
+//--------------------------------------------------------------------------------
+// Driver functions.
+//--------------------------------------------------------------------------------
+typedef struct vdi_Driver_ {
+    void (*fillSpan)(vdi_DrawContext * RESTRICT dc);
+
+    void (*fillRectangle)(vdi_DrawContext * RESTRICT dc);
+
+    void (*drawLine)(vdi_DrawContext * RESTRICT dc);
+    void (*drawGeneralLine)(vdi_DrawContext * RESTRICT dc);
+    void (*drawVerticalLine)(vdi_DrawContext * RESTRICT dc);
+    void (*drawHorizontalLine)(vdi_DrawContext * RESTRICT dc);
+    
+    void (*fillPolygonSpan)(vdi_DrawContext * RESTRICT dc);
+    void (*fillPolygon)(vdi_DrawContext * RESTRICT dc);
+
+    void (*fillDisk)(vdi_DrawContext * RESTRICT dc);
+
+    void (*seedFill)(vdi_DrawContext * RESTRICT dc);
+    
+    void (*blit)(const vdi_BlitParameters * RESTRICT blit_info);
+    void (*blitAll)(const vdi_BlitParameters * RESTRICT blit_info, BLIT * RESTRICT blt);
+    void (*blitGeneral)(const vdi_BlitParameters * RESTRICT blit_info, BLIT * RESTRICT blt);
+    void (*blitPlane)(BLIT * RESTRICT blt);
+} vdi_Driver;
+
+#define vdi_blitterOnly 0
+
+#if CONF_WITH_BLITTER
+extern const vdi_Driver vdi_Blitter_driver;
+#endif
+extern const vdi_Driver vdi_Soft_driver;
+
+forceinline const vdi_Driver* vdi_getDriver(void) {
+    #if CONF_WITH_BLITTER
+    #if vdi_blitterOnly
+    return vdi_Blitter_driver;
+    #else
+    return blitter_is_enabled ? &vdi_Blitter_driver : &vdi_Soft_driver;
+    #endif
+    #else
+    return &vdi_Soft_driver;
+    #endif
+}
+
+//********************************************************************************
+// Graphic device specific.
+//********************************************************************************
+//--------------------------------------------------------------------------------
 // Screen.
 //--------------------------------------------------------------------------------
-extern const UBYTE vdi_planeNbToRightShift[9];
+UWORD * vdi_getPixelAddress(WORD x, WORD y);
 
+forceinline bool vdi_checkPixelCoordinates(WORD x, WORD y) {
+    return x >= 0 && x < lineaVars.screen_width && y >= 0 && y < lineaVars.screen_height;
+}
+
+//--------------------------------------------------------------------------------
+// Shared buffer.
+//--------------------------------------------------------------------------------
+#define vdi_SpanBuffer_maxSpans 256 // Maximum number of spans that can be added before flushing.
+#define vdi_Text_scratchBufferSize (2*212) // Text scratch buffer size (in bytes).
+
+/*
+ * A shared work area.
+ * It is only used during a VDI or Line-A call.
+ */
+typedef struct {
+    vdi_Circle circle;
+    union {
+        struct {
+            // These buffers can be used simultaneously.
+            WORD inputPoints[2*CONF_VDI_MAX_VERTICES]; // Used by GSX_ENTRY(), must be at offset 0.
+            WORD polygonPoints[2 * CONF_VDI_MAX_VERTICES]; // Used by vdi_Polygon_fillSpan().
+            Rect spans[vdi_SpanBuffer_maxSpans]; // Used for the span buffer.
+        };
+        WORD deftxbuf[vdi_Text_scratchBufferSize/sizeof(WORD)]; /* text scratch buffer */
+    } common;
+} vdi_SharedBuffer;
+
+extern vdi_SharedBuffer vdi_sharedBuffer;
+
+/* aliases for different table positions */
+#define vdi_deviceResolutionX lineaVars.workstation_deviceTable[0]
+#define vdi_deviceResolutionY lineaVars.workstation_deviceTable[1]
+#define vdi_deviceSizeX lineaVars.workstation_deviceTable[3]
+#define vdi_deviceSizeY lineaVars.workstation_deviceTable[4]
+#define vdi_deviceColorNum lineaVars.workstation_deviceTable[13]
+
+// Thickness of outline.
+#define vdi_outlineThickness   1
+
+//********************************************************************************
+// Generic drawing tools.
+//********************************************************************************
+//--------------------------------------------------------------------------------
+// Pixel access.
+//--------------------------------------------------------------------------------
+extern const UBYTE vdi_planeNbToRightShift[9];
 extern const UBYTE vdi_planeNbToLeftShift[9];
 
 forceinline WORD vdi_scaleWordByPlaneNb(WORD w, WORD planeNb) {
     return w << vdi_planeNbToLeftShift[planeNb];
 }
 
-UWORD * vdi_getPixelAddress(WORD x, WORD y);
-
-//--------------------------------------------------------------------------------
-// Pixel access.
-//--------------------------------------------------------------------------------
 forceinline UWORD vdi_getPixelColor(WORD planeNb, UWORD mask, UWORD * addr) {
     addr += planeNb; // We go from high to low order bit for more efficiency.
     UWORD color = 0;
@@ -174,9 +446,7 @@ forceinline void vdi_setPixelColor(WORD planeNb, UWORD mask, UWORD * addr, UWORD
     } LOOP_WHILE(planeIndex);
 }
 
-forceinline bool vdi_checkPixelCoordinates(WORD x, WORD y) {
-    return x >= 0 && x < lineaVars.screen_width && y >= 0 && y < lineaVars.screen_height;
-}
+UWORD vdi_Pixel_read(WORD x, WORD y);
 
 forceinline UWORD mergePixel(UWORD pixelsOld, UWORD pixelsNew, UWORD mask) {
     #if 0
@@ -198,54 +468,6 @@ forceinline ULONG mergePixel32(ULONG pixelsOld, ULONG pixelsNew, ULONG mask) {
     // (pixelsNew & mask) | (pixelsOld & !mask) <=> ((pixelsNew ^ pixelsOld) & endMask) ^ pixelsOld
     return ((pixelsNew ^ pixelsOld) & mask) ^ pixelsOld;
     #endif
-}
-
-//--------------------------------------------------------------------------------
-// DrawContext.
-//--------------------------------------------------------------------------------
-typedef struct vdi_DrawContext_ {
-    UWORD mode;
-    UWORD color;
-    union {
-        struct {
-            Line line;
-            UWORD mask;
-            bool lastFlag;
-        } line;
-    };
-} vdi_DrawContext;
-
-//--------------------------------------------------------------------------------
-// FillingInfos.
-//--------------------------------------------------------------------------------
-typedef struct {
-    WORD x1, x2; // Ordered x position.
-    WORD y1, y2; // Ordered y position.
-    WORD width, height;
-    WORD wordNb; // Line width in words.
-    UWORD leftMask, rightMask; // Endmasks.
-    void *addr; // Starting screen address.
-    WORD stride; // Distance in bytes between 2 destination lines.
-    WORD planeNb; // Number of planes.
-} vdi_FillingInfos;
-
-// Coordinates must be sorted before the call: x1 < x2, y1 < y2.
-// This is inline because the compiler will optimize out several variables depending of input values.
-forceinline void vdi_FillingInfos_setup(vdi_FillingInfos * RESTRICT b, WORD x1, WORD x2, WORD y1, WORD y2) {
-    b->x1 = x1; b->x2 = x2;
-    b->y1 = y1; b->y2 = y2;
-    b->width = x2 - x1 + 1;
-    b->height = y2 - y1 + 1;
-    b->wordNb = (x2 >> 4) - (x1 >> 4) + 1;
-    b->leftMask = 0xffff >> (x1 & 0x0f); // TODO: Use table ?
-    b->rightMask = 0xffff << (15 - (x2 & 0x0f));
-    if (b->wordNb == 1) {
-        b->leftMask &= b->rightMask;
-        b->rightMask = 0;
-    }
-    b->addr = vdi_getPixelAddress(x1, y1);
-    b->stride = lineaVars.screen_lineSize2;
-    b->planeNb = lineaVars.screen_planeNb;
 }
 
 //--------------------------------------------------------------------------------
@@ -308,49 +530,67 @@ forceinline UWORD doPixelOpWithMask(WORD op, UWORD s, UWORD d, UWORD mask) {
 }
 
 //--------------------------------------------------------------------------------
-// Line tools.
+// Software driver functions and tools.
 //--------------------------------------------------------------------------------
-forceinline bool vdi_setupHorizontalLine(vdi_DrawContext * RESTRICT dc, vdi_FillingInfos * RESTRICT fi) {
-    WORD x1 = dc->line.line.x1, x2 = dc->line.line.x2;
-    if (x1 > x2) { WORD t = x1; x1 = x2; x2 = t; }
-    #if vdi_drawLine_lastLineLegacy
-    // Copy a DRI kludge: if we're in XOR mode, avoid XORing intermediate points in a polyline.
-    // We do it slightly differently than DRI with slightly differing results - but it's a kludge in either case.
-    if (dc->mode == WM_XOR && !dc->line.lastFlag && x1 != x2)
-        x2--;
-    #else
-    x2 -= !dc->line.lastFlag;
-    if (x1 > x2)
-        return true;
-    #endif
-    vdi_FillingInfos_setup(fi, x1, x2, dc->line.line.y1, dc->line.line.y1);
-    return false;
+#define vdi_Soft_asmEnabled 1 // Enable or disable inline assembly.
+
+#define vdi_drawLine_lastLineLegacy 1
+
+typedef struct vdi_SpanBuffer_ {
+    WORD capacity, length;
+    Rect *spans;
+    vdi_DrawContext *dc;
+} vdi_SpanBuffer;
+
+void vdi_SpanBuffer_flush(vdi_SpanBuffer * RESTRICT spanBuffer);
+Rect* vdi_SpanBuffer_add(vdi_SpanBuffer * RESTRICT spanBuffer);
+forceinline void vdi_SpanBuffer_begin(vdi_SpanBuffer *spanBuffer, vdi_DrawContext * RESTRICT dc) {
+    spanBuffer->capacity = vdi_SpanBuffer_maxSpans;
+    spanBuffer->length = 0;
+    spanBuffer->spans = vdi_sharedBuffer.common.spans;
+    spanBuffer->dc = dc;
+}
+forceinline void vdi_SpanBuffer_end(vdi_SpanBuffer *spanBuffer) {
+    vdi_SpanBuffer_flush(spanBuffer);
 }
 
-forceinline bool vdi_setupVerticalLine(vdi_DrawContext * RESTRICT dc, vdi_FillingInfos * RESTRICT fi) {
-    WORD dstStride = lineaVars.screen_lineSize2;
-    WORD h = dc->line.line.y2 - dc->line.line.y1;
-    if (h < 0) { h = -h; dstStride = -dstStride; }
-    #if vdi_drawLine_lastLineLegacy
-    // Copy a DRI kludge: if we're in XOR mode, avoid XORing intermediate points in a polyline.
-    // We do it slightly differently than DRI with slightly differing results - but it's a kludge in either case.
-    if (dc->mode == WM_XOR && !dc->line.lastFlag && h > 0)
-        h--;
-    #else
-    h -= !dc->line.lastFlag;
-    if (h < 0)
-        return true;
-    #endif
-    fi->height = h + 1;
-    fi->addr = vdi_getPixelAddress(dc->line.line.x1, dc->line.line.y1);
-    fi->stride = dstStride;
-    fi->planeNb = lineaVars.screen_planeNb;
-    return false;
-}
+typedef struct vdi_FillingInfos_ {
+    WORD width, height;
+    WORD wordNb; // Line width in words.
+    UWORD leftMask, rightMask; // Endmasks.
+    WORD stride; // Distance in bytes between 2 destination lines.
+    void *addr; // Starting screen address.
+} vdi_FillingInfos;
+
+// Coordinates must be sorted before the call: x1 < x2, y1 < y2.
+void vdi_DrawContext_setupRectangle(vdi_DrawContext * RESTRICT dc, vdi_FillingInfos * RESTRICT fi);
+bool vdi_DrawContext_setupHorizontalLine(vdi_DrawContext * RESTRICT dc, vdi_FillingInfos * RESTRICT fi);
+bool vdi_DrawContext_setupVerticalLine(vdi_DrawContext * RESTRICT dc, vdi_FillingInfos * RESTRICT fi);
+
+void vdi_Soft_fillRectangle(vdi_DrawContext * RESTRICT dc);
+
+void vdi_Soft_drawLine(vdi_DrawContext * RESTRICT dc);
+void vdi_Soft_drawGeneralLine(vdi_DrawContext * RESTRICT dc);
+void vdi_Soft_drawVerticalLine(vdi_DrawContext * RESTRICT dc);
+void vdi_Soft_drawHorizontalLine(vdi_DrawContext * RESTRICT dc);
+
+void vdi_Soft_fillPolygonSpan(vdi_DrawContext * RESTRICT dc);
+void vdi_Soft_fillPolygon(vdi_DrawContext * RESTRICT dc);
+
+void vdi_Soft_fillDisk(vdi_DrawContext * RESTRICT dc);
+
+void vdi_Soft_seedFill(vdi_DrawContext * RESTRICT dc);
+
+void vdi_Soft_blit(const vdi_BlitParameters *blit_info);
+void vdi_Soft_blitAll(const vdi_BlitParameters *blit_info, BLIT * RESTRICT blt);
+void vdi_Soft_blitGeneral(const vdi_BlitParameters *blit_info, BLIT * RESTRICT blt);
+void vdi_Soft_blitPlane(BLIT * restrict blt);
 
 //--------------------------------------------------------------------------------
-// Driver.
+// VwkAttrib. TODO: remove and merge with vdi_DrawContext.
 //--------------------------------------------------------------------------------
+#if 0
+
 /*
  * Small subset of vdi_VirtualWorkstation data.
  * Used by vdi_Rectangle_fillInternal to hide VDI/Line-A specific details from rectangle & polygon drawing.
@@ -364,47 +604,22 @@ typedef struct {
     UWORD color;         /* fill color */
 } VwkAttrib;
 
-typedef struct vdi_Driver_ {
-    void (*fillRectangle)(const vdi_FillingInfos * RESTRICT b, const VwkAttrib * RESTRICT attr);
-
-    void (*drawLine)(vdi_DrawContext * RESTRICT dc);
-    void (*drawGeneralLine)(vdi_DrawContext * RESTRICT dc);
-    void (*drawVerticalLine)(vdi_DrawContext * RESTRICT dc);
-    void (*drawHorizontalLine)(vdi_DrawContext * RESTRICT dc);
-    
-    void (*blit)(const vdi_BlitParameters * RESTRICT blit_info);
-    void (*blitAll)(const vdi_BlitParameters * RESTRICT blit_info, BLIT * RESTRICT blt);
-    void (*blitGeneral)(const vdi_BlitParameters * RESTRICT blit_info, BLIT * RESTRICT blt);
-    void (*blitPlane)(BLIT * RESTRICT blt);
-} vdi_Driver;
-
-void vdi_Soft_fillRectangle(const vdi_FillingInfos * RESTRICT b, const VwkAttrib * RESTRICT attr);
-
-void vdi_Soft_drawLine(vdi_DrawContext * RESTRICT dc);
-void vdi_Soft_drawGeneralLine(vdi_DrawContext * RESTRICT dc);
-void vdi_Soft_drawVerticalLine(vdi_DrawContext * RESTRICT dc);
-void vdi_Soft_drawHorizontalLine(vdi_DrawContext * RESTRICT dc);
-
-void vdi_Soft_blit(const vdi_BlitParameters *blit_info);
-void vdi_Soft_blitAll(const vdi_BlitParameters *blit_info, BLIT * RESTRICT blt);
-void vdi_Soft_blitGeneral(const vdi_BlitParameters *blit_info, BLIT * RESTRICT blt);
-void vdi_Soft_blitPlane(BLIT * restrict blt);
-
-#if CONF_WITH_BLITTER
-extern const vdi_Driver vdi_Blitter_driver;
-#endif
-extern const vdi_Driver vdi_Soft_driver;
-
-forceinline const vdi_Driver* vdi_getDriver(void) {
-    #if CONF_WITH_BLITTER
-    #if vdi_blitterOnly
-    return vdi_Blitter_driver;
-    #else
-    return blitter_is_enabled ? &vdi_Blitter_driver : &vdi_Soft_driver;
-    #endif
-    #else
-    return &vdi_Soft_driver;
-    #endif
+/*
+ * TODO: Remove this.
+ * Helper to copy relevant vdi_VirtualWorkstation members to the VwkAttrib struct, which is
+ * used to pass the required vdi_VirtualWorkstation info from VDI/Line-A polygon drawing to
+ * vdi_Rectangle_fill().
+ */
+static inline void vdi_convertVwkToAttrib(const vdi_VirtualWorkstation * RESTRICT vwk, VwkAttrib * RESTRICT attr, const UWORD color) {
+    // In the same order as in vdi_VirtualWorkstation, so that GCC can use longs for copying words
+    attr->clip = vwk->clippingEnabled;
+    attr->multifill = vwk->multiFillEnabled;
+    attr->patmsk = vwk->patmsk;
+    attr->patptr = vwk->patptr;
+    attr->wrt_mode = vwk->wrt_mode;
+    attr->color = color;
 }
+#endif
+
 
 #endif

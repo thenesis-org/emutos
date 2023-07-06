@@ -19,7 +19,7 @@
  * anyway.
  */
 
-// Bit mask for 'standard' values of patmsk
+// Bit mask for 'standard' values of patternMask
 #define vdi_Blitter_standardPatternMask ((1u<<15) | (1u<<7) | (1u<<3) | (1u<<1) | (1u<<0))
 
 // Blitter ops for draw/nodraw cases for wrt_mode 0-3.
@@ -44,81 +44,88 @@ forceinline void vdi_Blitter_wait(WORD startLine) {
 // Rectangle filling.
 //--------------------------------------------------------------------------------
 OPTIMIZE_O3
-static void vdi_Blitter_fillRectangle(const vdi_FillingInfos * RESTRICT fi, const VwkAttrib * RESTRICT attr) {
-    UBYTE * RESTRICT dst = fi->addr;
-    LONG size = muls(fi->height, fi->stride);
+static void vdi_Blitter_fillRectangle(vdi_DrawContext * RESTRICT dc) {
+    vdi_Rect_sortCorners(&dc->rect);
+    if (vdi_Rect_clip(&dc->rect, &dc->clipping.rect))
+        return;
+
+    vdi_FillingInfos fi;
+    vdi_DrawContext_setupRectangle(dc, &fi);
+
+    UBYTE * RESTRICT dst = fi.addr;
+    LONG size = muls(fi.height, fi.stride);
     flush_data_cache(dst, size); // Flush the data cache to ensure that the screen memory is updated.
 
     BLITTER->src_x_inc = 0;
-    BLITTER->endmask_1 = fi->leftMask;
+    BLITTER->endmask_1 = fi.leftMask;
     BLITTER->endmask_2 = 0xffff;
-    BLITTER->endmask_3 = fi->rightMask;
-    BLITTER->dst_x_inc = fi->planeNb * sizeof(WORD);
-    BLITTER->dst_y_inc = fi->stride - ((fi->wordNb - 1) << (vdi_planeNbToLeftShift[fi->planeNb] + 1));
-    BLITTER->x_count = fi->wordNb;
+    BLITTER->endmask_3 = fi.rightMask;
+    BLITTER->dst_x_inc = dc->planeNb * sizeof(UWORD);
+    BLITTER->dst_y_inc = fi.stride - ((fi.wordNb - 1) << (vdi_planeNbToLeftShift[dc->planeNb] + 1));
+    BLITTER->x_count = fi.wordNb;
     BLITTER->skew = 0;
     BLITTER->hop = HOP_HALFTONE_ONLY;
 
-    UWORD patmsk = attr->patmsk;
+    UWORD patternMask = dc->pattern.mask;
     
     /*
-     * Check for 'non-standard' values of patmsk:
-     * - If multifill is set, patmsk must be 15
-     * - If multifill is *not* set, patmsk must be 0, 1, 3, 7, or 15
+     * Check for 'non-standard' values of patternMask:
+     * - If multifill is set, patternMask must be 15
+     * - If multifill is *not* set, patternMask must be 0, 1, 3, 7, or 15
      * If we have a non-standard value, we call a separate function.
      */
-    bool nonstd = false;
-    if (attr->multifill) {
-        if (patmsk != 15)
-            nonstd = true;
+    bool patternNonStandard = false;
+    if (dc->multiFill) {
+        if (patternMask != 15)
+            patternNonStandard = true;
     } else {
-        if (patmsk >= 16 || (vdi_Blitter_standardPatternMask & (1u << patmsk)) == 0)
-            nonstd = true;
+        if (patternMask >= 16 || (vdi_Blitter_standardPatternMask & (1u << patternMask)) == 0)
+            patternNonStandard = true;
     }
     
     {
-        const UWORD *patptr = attr->patptr;
-        const UBYTE *blitterOp = vdi_Blitter_op[attr->wrt_mode];
+        const UWORD *patternData = dc->pattern.data;
+        const UBYTE *blitterOp = vdi_Blitter_op[dc->mode];
         UWORD * RESTRICT dstPlane = (UWORD * RESTRICT)dst;
-        UWORD color = attr->color;
-        if (nonstd) {
+        UWORD color = dc->color;
+        if (patternNonStandard) {
             /*
-             * Handle non-standard values of patmsk.
+             * Handle non-standard values of patternMask.
              * We do a line-at-a-time within the normal plane-at-a-time loop.
              */
-            UWORD patindex = fi->y1 & patmsk;
-            LOOP_DO(plane, fi->planeNb) {
+            UWORD patternLineIndex = dc->rect.y1 & patternMask;
+            LOOP_DO(plane, dc->planeNb) {
                 BLITTER->dst_addr = dstPlane++;
                 BLITTER->op = blitterOp[color & 1];
-                LOOP_DO(y, fi->height) {
-                    BLITTER->halftone[0] = patptr[patindex++];
-                    if (patindex > patmsk) // patmsk can be a non power of 2 in this function.
-                        patindex = 0;
+                LOOP_DO(y, fi.height) {
+                    BLITTER->halftone[0] = patternData[patternLineIndex++];
+                    if (patternLineIndex > patternMask) // patternMask can be a non power of 2 in this function.
+                        patternLineIndex = 0;
                     BLITTER->y_count = 1;
                     vdi_Blitter_wait(0);
                 } LOOP_WHILE(y);
-                if (attr->multifill)
-                    patptr += 16;                   
+                if (dc->multiFill)
+                    patternData += 16;                   
                 color >>= 1;
             } LOOP_WHILE(plane);
         } else {
-            if (!attr->multifill) { /* only need to init halftone once */
+            if (!dc->multiFill) { /* only need to init halftone once */
                 UWORD * RESTRICT p = BLITTER->halftone;
                 for (WORD i = 0; i < 16; i++)
-                    p[i] = patptr[i & patmsk];
+                    p[i] = patternData[i & patternMask];
             }
 
             {
-                UBYTE startLine = fi->y1 & LINENO;
-                LOOP_DO(plane, fi->planeNb) {
-                    if (attr->multifill) { /* need to init halftone each time */
-                        /* more efficient here because patmsk must be 15 */
+                UBYTE startLine = dc->rect.y1 & LINENO;
+                LOOP_DO(plane, dc->planeNb) {
+                    if (dc->multiFill) { /* need to init halftone each time */
+                        /* more efficient here because patternMask must be 15 */
                         UWORD * RESTRICT p = BLITTER->halftone;
                         for (WORD i = 0; i < 16; i++) // TODO: Use a movem ?
-                            *p++ = *patptr++;
+                            *p++ = *patternData++;
                     }
                     BLITTER->dst_addr = dstPlane++;
-                    BLITTER->y_count = fi->height;
+                    BLITTER->y_count = fi.height;
                     BLITTER->op = blitterOp[color & 1];
                     vdi_Blitter_wait(startLine);
                     color >>= 1;
@@ -138,7 +145,7 @@ static void vdi_Blitter_fillRectangle(const vdi_FillingInfos * RESTRICT fi, cons
 // The setup time is so high that is it worth using the blitter for a few words ?
 static void vdi_Blitter_drawVerticalLine(vdi_DrawContext * RESTRICT dc) {
     vdi_FillingInfos fi;
-    if (vdi_setupVerticalLine(dc, &fi))
+    if (vdi_DrawContext_setupVerticalLine(dc, &fi))
         return;
 
     WORD startLine;
@@ -183,7 +190,7 @@ static void vdi_Blitter_drawVerticalLine(vdi_DrawContext * RESTRICT dc) {
     UWORD color = dc->color;
     const UBYTE *blitterOp = vdi_Blitter_op[dc->mode];
     UWORD *dstPlane = (UWORD*)fi.addr;
-    LOOP_DO(planeIndex, fi.planeNb) {
+    LOOP_DO(planeIndex, dc->planeNb) {
         BLITTER->dst_addr = dstPlane++;
         BLITTER->y_count = fi.height;
         BLITTER->op = blitterOp[color & 1];
@@ -203,7 +210,7 @@ static void vdi_Blitter_drawVerticalLine(vdi_DrawContext * RESTRICT dc) {
 
 static void vdi_Blitter_drawHorizontalLine(vdi_DrawContext * RESTRICT dc) {
     vdi_FillingInfos fi;
-    if (vdi_setupHorizontalLine(dc, &fi))
+    if (vdi_DrawContext_setupHorizontalLine(dc, &fi))
         return;
     
     flush_data_cache(fi.addr, fi.stride);
@@ -215,8 +222,8 @@ static void vdi_Blitter_drawHorizontalLine(vdi_DrawContext * RESTRICT dc) {
     BLITTER->endmask_3 = fi.rightMask & lineMask;
     rolw(lineMask, fi.width & 0xf);
     dc->line.mask = lineMask;
-    BLITTER->dst_x_inc = fi.planeNb  << 1;
-    BLITTER->dst_y_inc = fi.stride - ((fi.wordNb - 1) << (vdi_planeNbToLeftShift[fi.planeNb] + 1));
+    BLITTER->dst_x_inc = dc->planeNb  << 1;
+    BLITTER->dst_y_inc = fi.stride - ((fi.wordNb - 1) << (vdi_planeNbToLeftShift[dc->planeNb] + 1));
     BLITTER->x_count = fi.wordNb;
     BLITTER->skew = 0;
     BLITTER->hop = HOP_ALL_ONES;
@@ -224,7 +231,7 @@ static void vdi_Blitter_drawHorizontalLine(vdi_DrawContext * RESTRICT dc) {
     UWORD color = dc->color;
     const UBYTE *blitterOp = vdi_Blitter_op[dc->mode];
     UWORD *dstPlane = fi.addr;
-    LOOP_DO(plane, fi.planeNb) {
+    LOOP_DO(plane, dc->planeNb) {
         BLITTER->dst_addr = dstPlane++;
         BLITTER->y_count = 1;
         BLITTER->op = blitterOp[color & 1];
@@ -268,6 +275,8 @@ static void vdi_Blitter_blitPlane(BLIT * RESTRICT blt) {
 // Driver.
 //--------------------------------------------------------------------------------
 const vdi_Driver vdi_Blitter_driver = {
+    fillSpan: vdi_Blitter_fillRectangle,
+
     fillRectangle: vdi_Blitter_fillRectangle,
     
     drawLine: vdi_Soft_drawLine,
@@ -283,6 +292,13 @@ const vdi_Driver vdi_Blitter_driver = {
     drawHorizontalLine: vdi_Soft_drawGeneralLine,
     #endif
     
+    fillPolygonSpan: vdi_Soft_fillPolygonSpan,
+    fillPolygon: vdi_Soft_fillPolygon,
+
+    fillDisk: vdi_Soft_fillDisk,
+
+    seedFill: vdi_Soft_seedFill,
+
     blit: vdi_Soft_blit, // Software routine for blitting setup.
     blitAll: vdi_Soft_blitGeneral, // Same as blitGeneral because we do not use specially optimized code.
     blitGeneral: vdi_Soft_blitGeneral, // Not used in practice.

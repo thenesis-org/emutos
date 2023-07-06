@@ -24,21 +24,6 @@
 #include "../aes/aesstub.h"
 #endif
 
-//--------------------------------------------------------------------------------
-// Memory tools.
-//--------------------------------------------------------------------------------
-forceinline void copyWords(WORD n, const WORD *src, WORD *dst) {
-    LOOP_DO(i, n) {
-        *dst++ = *src++;
-    } LOOP_WHILE(i);
-}
-
-forceinline void copyLongs(WORD n, const LONG *src, LONG *dst) {
-    LOOP_DO(i, n) {
-        *dst++ = *src++;
-    } LOOP_WHILE(i);
-}
-
 /*
  * Mxalloc() mode used when allocating the virtual workstation.  This
  * is only significant when running under FreeMiNT, since EmuTOS ignores
@@ -46,47 +31,13 @@ forceinline void copyLongs(WORD n, const LONG *src, LONG *dst) {
  */
 #define MX_SUPER (3<<4)
 
-//--------------------------------------------------------------------------------
-// Math tools.
-//--------------------------------------------------------------------------------
-forceinline WORD clipWord(WORD v, WORD vMin, WORD vMax) {
-    if (v < vMin) 
-        v = vMin;
-    if (v > vMax)
-        v = vMax;
-    return v;
-}
-
-forceinline WORD checkRangeWord(WORD v, WORD vMin, WORD vMax, WORD vDefault) {
-    if (v < vMin || v > vMax) 
-        v = vDefault;
-    return v;
-}
-
-/*
- * Absolute for LONG
- */
-forceinline LONG absLong(LONG x) {
-    return (x < 0) ? -x : x;
-}
-
+//********************************************************************************
+// Tools.
+//********************************************************************************
 //--------------------------------------------------------------------------------
 // Geometric tools.
 //--------------------------------------------------------------------------------
-forceinline bool vdi_ClipRect_checkPointX(const ClippingRect *clippingRect, WORD x) {
-    return x < clippingRect->xMin || x > clippingRect->xMax;
-}
-
-forceinline bool vdi_ClipRect_checkPointY(const ClippingRect *clippingRect, WORD y) {
-    return y < clippingRect->yMin || y > clippingRect->yMax;
-}
-
-forceinline bool vdi_ClipRect_checkRect(const ClippingRect *clippingRect, WORD xMin, WORD yMin, WORD xMax, WORD yMax) {
-    return xMax < clippingRect->xMin || xMin > clippingRect->xMax || yMax < clippingRect->yMin || yMin > clippingRect->xMax;
-}
-
-// Coordinates must be sorted.
-static bool vdi_ClipRect_clipSingleCoordinate(WORD xMin, WORD xMax, WORD *x) {
+bool vdi_ClipRect_clipSingleCoordinate(WORD xMin, WORD xMax, WORD *x) {
     WORD x0 = x[0], x1 = x[1];
     if (x0 > xMax || x1 < xMin)
         return true;
@@ -97,24 +48,12 @@ static bool vdi_ClipRect_clipSingleCoordinate(WORD xMin, WORD xMax, WORD *x) {
     return false;
 }
 
-forceinline void vdi_Rect_sortX(Rect * rect) {
-    WORD x1 = rect->x1, x2 = rect->x2;
-    if (x1 > x2) { rect->x1 = x2; rect->x2 = x1; }
-}
-
-forceinline void vdi_Rect_sortY(Rect * rect) {
-    WORD y1 = rect->y1, y2 = rect->y2;
-    if (y1 > y2) { rect->y1 = y2; rect->y2 = y1; }
-}
-
-// Sort the corners. Raster (ll, ur) format is desired.
-static void vdi_Rect_sortCorners(Rect * rect) {
+void vdi_Rect_sortCorners(Rect *rect) {
     vdi_Rect_sortX(rect);
     vdi_Rect_sortY(rect);
 }
 
-// Clip a rectangle. Coordinates must be sorted.
-static bool vdi_Rect_clip(Rect *rect, const ClippingRect *clip) {
+bool vdi_Rect_clip(Rect * RESTRICT rect, const ClippingRect * RESTRICT clip) {
     for (WORD i = 0; i < 2; i++) {
         WORD x0 = rect->p[0].v[i], x1 = rect->p[1].v[i];
         WORD xMin = clip->p[0].v[i], xMax = clip->p[1].v[i];
@@ -128,8 +67,7 @@ static bool vdi_Rect_clip(Rect *rect, const ClippingRect *clip) {
     return false;
 }
 
-// Copy and sort (arbitrate) the lines coordinates. Traditional (ll, ur) format is desired.
-static void vdi_Line_sortVertices(Line * line) {
+void vdi_Line_sortVertices(Line *line) {
     if (line->x1 > line->x2) {
         WORD temp = line->x1;
         line->x1 = line->x2;
@@ -142,83 +80,13 @@ static void vdi_Line_sortVertices(Line * line) {
     }
 }
 
+//********************************************************************************
+// VDI.
+//********************************************************************************
 //--------------------------------------------------------------------------------
-// .
+// Shared buffer.
 //--------------------------------------------------------------------------------
-#define vdi_Line_maxWidth 40
-
-#define vdi_Circle_maxPixelAspectRatio 2 /* max expected value of vdi_deviceSizeX/vdi_deviceSizeY */
-#define vdi_Circle_maxLines ((vdi_Line_maxWidth * vdi_Circle_maxPixelAspectRatio) / 2 + 1)
-typedef struct {
-    WORD lineWidth;
-    WORD lineNb;
-    /*
-     * The following array holds values that allow vdi_WideLine_draw() to draw a rasterized circle.
-     * The values are actually those required for a quarter of the circle, specifically quadrant 1.
-     * [Quadrants are numbered 1-4, beginning with the "south-east" quadrant, and travelling clockwise].
-     *
-     * q_circle[n] contains the offset of the edge of the circle (from a vertical line through the centre of the circle),
-     * for the nth line (counting from a horizontal line through the centre of the circle).
-     */
-    WORD offsets[vdi_Circle_maxLines]; // Holds the circle DDA.
-} vdi_Circle;
-
-// Common settings needed both by VDI and line-A raster operations, but being given through different means.
-struct vdi_RasterInfos {
-    ClippingRect *clippingRect;
-    bool clippingEnabled;
-    bool multifill;
-    bool transparent;
-};
-
-#define vdi_SpanBuffer_maxSpans 256 // Maximum number of spans that can be added before flushing.
-
-#define vdi_Text_scratchBufferSize (2*212) // Text scratch buffer size (in bytes).
-
-/*
- * A shared work area.
- * It is only used during a VDI or Line-A call.
- */
-typedef struct {
-    vdi_Circle circle;
-    union {
-        struct {
-            // These buffers can be used simultaneously.
-            WORD inputPoints[2*CONF_VDI_MAX_VERTICES]; // Used by GSX_ENTRY(), must be at offset 0.
-            WORD polygonPoints[2 * CONF_VDI_MAX_VERTICES]; // Used by vdi_Polygon_fillSpan().
-            Rect spans[vdi_SpanBuffer_maxSpans]; // Used for the span buffer.
-        };
-        WORD deftxbuf[vdi_Text_scratchBufferSize/sizeof(WORD)]; /* text scratch buffer */
-    } common;
-} vdi_SharedBuffer;
-
 vdi_SharedBuffer vdi_sharedBuffer;
-
-/* aliases for different table positions */
-#define vdi_deviceResolutionX lineaVars.workstation_deviceTable[0]
-#define vdi_deviceResolutionY lineaVars.workstation_deviceTable[1]
-#define vdi_deviceSizeX lineaVars.workstation_deviceTable[3]
-#define vdi_deviceSizeY lineaVars.workstation_deviceTable[4]
-#define vdi_deviceColorNum lineaVars.workstation_deviceTable[13]
-
-// Thickness of outline.
-#define vdi_outlineThickness   1
-
-/*
- * TODO: Remove this.
- * Helper to copy relevant vdi_VirtualWorkstation members to the VwkAttrib struct, which is
- * used to pass the required vdi_VirtualWorkstation info from VDI/Line-A polygon drawing to
- * vdi_Rectangle_fill().
- */
-static void vdi_convertVwkToAttrib(const vdi_VirtualWorkstation * RESTRICT vwk, VwkAttrib * RESTRICT attr, const UWORD color) {
-    // In the same order as in vdi_VirtualWorkstation, so that GCC can use longs for copying words
-    attr->clip = vwk->clippingEnabled;
-    attr->multifill = vwk->multiFillEnabled;
-    attr->patmsk = vwk->patmsk;
-    attr->patptr = vwk->patptr;
-    attr->wrt_mode = vwk->wrt_mode;
-    attr->color = color;
-}
 
 //--------------------------------------------------------------------------------
 // Drawing tools.
@@ -282,49 +150,6 @@ static const UWORD vdi_fringeTable[16 + 1] = {
     0x0001,
     0x0000
 };
-
-//--------------------------------------------------------------------------------
-// Span buffer.
-//--------------------------------------------------------------------------------
-typedef struct vdi_SpanBuffer_ {
-    const VwkAttrib *attr;
-    WORD capacity, length;
-    Rect *spans;
-} vdi_SpanBuffer;
-
-static void vdi_SpanBuffer_flush(vdi_SpanBuffer *spanBuffer) {
-    const vdi_Driver *driver = vdi_getDriver();
-    const VwkAttrib *attr = spanBuffer->attr;
-    Rect *span = spanBuffer->spans;
-    WORD length = spanBuffer->length;
-    while (length > 0) {
-        vdi_FillingInfos b;
-        vdi_FillingInfos_setup(&b, span->x1, span->x2, span->y1, span->y2);
-        driver->fillRectangle(&b, attr); // Use fill span instead.
-        span++;
-        length--;
-    }
-    spanBuffer->length = 0;
-}
-
-forceinline void vdi_SpanBuffer_begin(vdi_SpanBuffer *spanBuffer, const VwkAttrib *attr) {
-    spanBuffer->attr = attr;
-    spanBuffer->capacity = vdi_SpanBuffer_maxSpans;
-    spanBuffer->length = 0;
-    spanBuffer->spans = vdi_sharedBuffer.common.spans;
-}
-
-forceinline void vdi_SpanBuffer_end(vdi_SpanBuffer *spanBuffer) {
-    vdi_SpanBuffer_flush(spanBuffer);
-}
-
-static Rect* vdi_SpanBuffer_add(vdi_SpanBuffer *spanBuffer) {
-    if (spanBuffer->length >= spanBuffer->capacity)
-        vdi_SpanBuffer_flush(spanBuffer);
-    WORD spanIndex = spanBuffer->length;
-    spanBuffer->length++;
-    return &spanBuffer->spans[spanIndex];
-}
 
 //--------------------------------------------------------------------------------
 // Palette.
@@ -1278,8 +1103,7 @@ static void vdi_vqf_attributes(vdi_VirtualWorkstation * vwk) {
 //--------------------------------------------------------------------------------
 // Pixel read and write.
 //--------------------------------------------------------------------------------
-static UWORD vdi_Pixel_read(WORD x, WORD y) {
-    // if vwk->clippingEnabled
+UWORD vdi_Pixel_read(WORD x, WORD y) {
     if (vdi_checkPixelCoordinates(x, y))
         return vdi_getPixelColor(lineaVars.screen_planeNb, 0x8000 >> (x & 0xf), vdi_getPixelAddress(x, y));
     else
@@ -1287,7 +1111,6 @@ static UWORD vdi_Pixel_read(WORD x, WORD y) {
 }
 
 static void vdi_Pixel_write(WORD x, WORD y, UWORD color) {
-    // if vwk->clippingEnabled
     if (vdi_checkPixelCoordinates(x, y))
         vdi_setPixelColor(lineaVars.screen_planeNb, 0x8000 >> (x & 0xf), vdi_getPixelAddress(x, y), color);
 }
@@ -1313,28 +1136,13 @@ static void vdi_v_get_pixel(vdi_VirtualWorkstation * vwk) {
 //--------------------------------------------------------------------------------
 // Rectangle filling.
 //--------------------------------------------------------------------------------
-/**
- * Draw one or more horizontal lines.
- * Calls the hardware or software blitter code to perform the blit.
- */
-static void vdi_Rectangle_fillInternal(const VwkAttrib * RESTRICT attr, const Rect * RESTRICT rect) {
-    vdi_FillingInfos b;
-    vdi_FillingInfos_setup(&b, rect->x1, rect->x2, rect->y1, rect->y2);
-    vdi_getDriver()->fillRectangle(&b, attr);
-}
-
-static void vdi_Rectangle_fill(vdi_VirtualWorkstation * RESTRICT vwk, const Rect * RESTRICT rect, const UWORD fillcolor) {
-    VwkAttrib attr;
-    vdi_convertVwkToAttrib(vwk, &attr, fillcolor);
-    vdi_Rectangle_fillInternal(&attr, rect);
-}
-
 static void vdi_vr_recfl(vdi_VirtualWorkstation * vwk) {
-    Rect rect = *(Rect *)lineaVars.PTSIN; // Make temporary copy to prevent the clipping code from damaging the lineaVars.PTSIN values we might need later on for perimeter draws.
-    vdi_Rect_sortCorners(&rect);
-    if (vwk->clippingEnabled && vdi_Rect_clip(&rect, &vwk->clippingRect))
-        return;
-    vdi_Rectangle_fill(vwk, &rect, vwk->fill_color);
+    vdi_DrawContext dc;
+    vdi_DrawContext_setupPlaneNb(&dc);
+    vdi_DrawContext_setupClipping(&dc, vwk);
+    vdi_DrawContext_setupFilling(&dc, vwk, vwk->fill_color);
+    dc.rect = *(Rect *)lineaVars.PTSIN;
+    vdi_getDriver()->fillRectangle(&dc);
 }
 
 //--------------------------------------------------------------------------------
@@ -1350,90 +1158,6 @@ static void vdi_Line_setMask(const vdi_VirtualWorkstation * RESTRICT vwk) {
     WORD l = vwk->line_index;
     lineaVars.line_mask = (l < 6) ? vdi_Line_predefinedStyles[l] : vwk->ud_ls;
 }
-
-/**
- * Helper function for vdi_Line_clip().
- * @return A bit mask indicating where x and y are, relative to the clipping rectangle:
- * - 1: x is left
- * - 2: x is right
- * - 4: y is above
- * - 8: y is below
- */
-static UWORD vdi_Line_computeClipMask(const ClippingRect *clippingRect, WORD x, WORD y) {
-    UWORD clipMask = 0;
-    if (x < clippingRect->xMin)
-        clipMask = 1;
-    else if (x > clippingRect->xMax)
-        clipMask = 2;
-    if (y < clippingRect->yMin)
-        clipMask += 4;
-    else if (y > clippingRect->yMax)
-        clipMask += 8;
-    return clipMask;
-}
-
-/**
- * Clip line if necessary.
- * @return false iff the line lies outside the clipping rectangle. Otherwise, updates the contents of the Line structure and returns true.
- */
-static bool vdi_Line_clip(const ClippingRect *clipRect, Line *line) {
-    UWORD clipMaskP0, clipMaskP1;
-    while ((clipMaskP0 = vdi_Line_computeClipMask(clipRect, line->x1, line->y1)) |
-           (clipMaskP1 = vdi_Line_computeClipMask(clipRect, line->x2, line->y2))) {
-        if (clipMaskP0 & clipMaskP1)
-            return true;
-        UWORD clipMask;
-        Point *p;
-        if (clipMaskP0) {
-            clipMask = clipMaskP0;
-            p = &line->p[0];
-        } else {
-            clipMask = clipMaskP1;
-            p = &line->p[1];
-        }
-        WORD deltax = line->x2 - line->x1;
-        WORD deltay = line->y2 - line->y1;
-        if (clipMask & 1) { // left ?
-            WORD xMin = clipRect->xMin;
-            p->y = line->y1 + mul_div_round(deltay, (xMin - line->x1), deltax);
-            p->x = xMin;
-        } else if (clipMask & 2) { // right ?
-            WORD xMax = clipRect->xMax;
-            p->y = line->y1 + mul_div_round(deltay, (xMax - line->x1), deltax);
-            p->x = xMax;
-        } else if (clipMask & 4) { // top ?
-            WORD yMin = clipRect->yMin;
-            p->x = line->x1 + mul_div_round(deltax, (yMin - line->y1), deltay);
-            p->y = yMin;
-        } else if (clipMask & 8) { // bottom ?
-            WORD yMax = clipRect->yMax;
-            p->x = line->x1 + mul_div_round(deltax, (yMax - line->y1), deltay);
-            p->y = yMax;
-        }
-    }
-    return false; // Not clipped.
-}
-
-//--------------------------------------------------------------------------------
-// Vertical line.
-//--------------------------------------------------------------------------------
-#if 0 // CONF_WITH_VDI_VERTLINE
-
-/**
- * Draw a vertical line
- * This is a stripped-down version of abline(), for speed.
- */
-static void vdi_Line_drawVertical(const Line *line, WORD wrt_mode, UWORD color, bool lastLineFlag) {
-    vdi_getDriver()->drawVerticalLine(line, wrt_mode, color, lastLineFlag);
-}
-
-#endif
-
-#if 0 
-static void vdi_Line_drawHorizontal(const Line *line, WORD wrt_mode, UWORD color, bool lastLineFlag) {
-    vdi_getDriver()->drawHorizontalLine(line, wrt_mode, color, lastLineFlag);
-}
-#endif
 
 //--------------------------------------------------------------------------------
 // General line.
@@ -1452,7 +1176,15 @@ static void vdi_Line_drawHorizontal(const Line *line, WORD wrt_mode, UWORD color
  * "not" modes, resulting in faster execution of their inner loops.
  */
 
-static void vdi_Line_drawStart(vdi_DrawContext * RESTRICT dc, WORD mode, UWORD color) {
+static void vdi_Line_drawStart(vdi_DrawContext * RESTRICT dc, vdi_VirtualWorkstation * RESTRICT vwk, bool clippingEnabled, WORD mode, UWORD color) {
+    vdi_DrawContext_setupPlaneNb(dc);
+
+    dc->clipping.enabled = clippingEnabled;
+    if (clippingEnabled)
+        dc->clipping.rect = vwk->clippingRect;
+    else
+        dc->clipping.rect = vdi_context.clippingRectFull;
+
     dc->mode = mode;
     dc->color = color;
     dc->line.mask = lineaVars.line_mask;
@@ -1463,42 +1195,26 @@ static void vdi_Line_drawEnd(vdi_DrawContext * RESTRICT dc) {
 }
 
 /**
- * Draw a line.
- * @param line Pointer to structure containing coordinates.
- * @param mode Writing mode:
- * - 0: replace mode.
- * - 1: or mode.
- * - 2: xor mode.
- * - 3: not mode.
- * @param lastLineFlag true iff this is the last line of a polyline.
- * @param lineaVars.screen_planeNb (global variable) Number of video planes.
- * @param lineaVars.line_mask (global variable) Line mask (for dashed/dotted lines).
- * @return lineaVars.line_mask rotated to proper alignment with x coordinate of line end.
- */
-static void vdi_Line_draw(const Line *line, WORD mode, UWORD color, bool lastLineFlag) {
-    vdi_DrawContext dc;
-    vdi_Line_drawStart(&dc, mode, color);
-    dc.line.line = *line;
-    dc.line.lastFlag = lastLineFlag;
-    vdi_getDriver()->drawLine(&dc);
-    vdi_Line_drawEnd(&dc);
-}
-
-/**
  * Draw a poly-line.
  * We pass the colour, since this routine is also used for perimeters, which are drawn in the fill colour.
  */
-static void vdi_Line_drawPoly(vdi_VirtualWorkstation * RESTRICT vwk, const Point * RESTRICT point, int count, WORD color) {
+static void vdi_Line_drawPoly(vdi_VirtualWorkstation * RESTRICT vwk, const Point * RESTRICT point, WORD count, WORD color, bool closed) {
+    if (count < 2)
+        return;
     vdi_DrawContext dc;
-    vdi_Line_drawStart(&dc, vwk->wrt_mode, color);
-    for (int i = count - 1; i > 0; i--) {
+    vdi_Line_drawStart(&dc, vwk, vwk->clippingEnabled, vwk->wrt_mode, color);
+    if (closed) {
+        dc.line.line.p[0] = point[count - 1];
+        dc.line.line.p[1] = *point;
+        dc.line.lastFlag = false;
+        vdi_getDriver()->drawLine(&dc);        
+    }
+    do {
         dc.line.line.p[0] = *point++;
         dc.line.line.p[1] = *point;
-        if (vwk->clippingEnabled && vdi_Line_clip(&vwk->clippingRect, &dc.line.line))
-            continue;
-        dc.line.lastFlag = i == 1;
+        dc.line.lastFlag = count == 2;
         vdi_getDriver()->drawLine(&dc);
-    }
+    } while (count-- > 2);
     vdi_Line_drawEnd(&dc);
 }
 
@@ -1551,176 +1267,17 @@ static void vdi_vql_attributes(vdi_VirtualWorkstation * vwk) {
 //--------------------------------------------------------------------------------
 // Polygon.
 //--------------------------------------------------------------------------------
-/*
- * Sorts an array of words into ascending order.
- * input:
- *     buf   - ptr to start of array.
- *     count - number of words in array.
- */
-static void vdi_Polygon_bubbleSort(WORD * buf, WORD count) {
-    for (WORD i = count-1; i > 0; i--) {
-        WORD * ptr = buf; /* reset pointer to the array */
-        for (WORD j = 0; j < i; j++) {
-            WORD val = *ptr++;   /* word */    /* get next value */
-            if ( val > *ptr ) {    /* yes - do nothing */
-                *(ptr-1) = *ptr;   /* word */    /* nope - swap them */
-                *ptr = val;   /* word */
-            }
-        }
-    }
-}
-
-forceinline void vdi_Polygon_drawSpan(vdi_SpanBuffer *spanBuffer, WORD x1, WORD x2, WORD y) {
-    Rect *r = vdi_SpanBuffer_add(spanBuffer);
-    r->x1 = x1; r->x2 = x2; r->y1 = r->y2 = y;
-}
-
-/*
- * Draw a filled polygon.
- *
- * (Sutherland and Hodgman Polygon Clipping Algorithm)
- *
- * For each non-horizontal scanline crossing poly, do:
- *   - find intersection points of scan line with poly edges.
- *   - Sort intersections left to right
- *   - Draw pixels between each pair of points (x coords) on the scan line
- */
-/*
- * the buffer used by vdi_Polygon_fillSpan() has been temporarily moved from the
- * stack to a local static area.  this avoids some cases of stack
- * overflow when the VDI is called from the AES (and the stack is the
- * small one located in the UDA).  this fix allows GemAmigo to run.
- *
- * this change restores the situation that existed in the original
- * DRI code, when vdi_Polygon_fillSpan() was written in assembler; the buffer
- * was moved to the stack when vdi_Polygon_fillSpan() was re-implemented in C.
- */
-static void vdi_Polygon_fillSpan(vdi_SpanBuffer * RESTRICT spanBuffer, const ClippingRect * RESTRICT clipRect, const Point * RESTRICT point, WORD y, WORD vectors) {
-    /* Initialize the pointers and counters. */
-    WORD intersections = 0;  /* reset counter */
-    WORD *polygonPoints = vdi_sharedBuffer.common.polygonPoints;
-    // TODO: Use temporary buffer.
-    // WORD *polygonPoints = vdi_getTemporaryBuffer(size);
-    // if (!polygonPoints) return;
-
-    /* find intersection points of scan line with poly edges. */
-    {
-        WORD *polygonPoint = polygonPoints;
-        for (WORD i = 0; i < vectors; i++) {
-            WORD y1 = point[i].y;        /* fetch y-value of 1st endpoint. */
-            WORD y2 = point[i+1].y;      /* fetch y-value of 2nd endpoint. */
-
-            /* if the current vector is horizontal, ignore it. */
-            WORD dy = y2 - y1;
-            if (dy) {
-                /* fetch scan-line y. */
-                LONG dy1 = y - y1;       /* d4 - delta y1. */
-                LONG dy2 = y - y2;       /* d3 - delta y2. */
-
-                /*
-                 * Determine whether the current vector intersects with the scan
-                 * line we wish to draw.  This test is performed by computing the
-                 * y-deltas of the two endpoints from the scan line.
-                 * If both deltas have the same sign, then the line does
-                 * not intersect and can be ignored.  The origin for this
-                 * test is found in Newman and Sproull.
-                 */
-                if ((dy1 < 0) != (dy2 < 0)) {
-                    WORD x1 = point[i].x;        /* fetch x-value of 1st endpoint. */
-                    WORD x2 = point[i+1].x;      /* fetch x-value of 2nd endpoint. */
-                    WORD dx = (x2 - x1) << 1;    /* so we can round by adding 1 below */
-                    if (intersections >= CONF_VDI_MAX_VERTICES)
-                        break;
-                    intersections++;
-                    /* fill edge buffer with x-values */
-                    if (dx < 0) {
-                        /* does ((dy2 * dx / dy + 1) >> 1) + x2; */
-                        *polygonPoint++ = ((mul_div(dy2, dx, dy) + 1) >> 1) + x2;
-                    } else {
-                        /* does ((dy1 * dx / dy + 1) >> 1) + x1; */
-                        *polygonPoint++ = ((mul_div(dy1, dx, dy) + 1) >> 1) + x1;
-                    }
-                }
-            }
-        }
-    }
-    
-    /*
-     * All of the points of intersection have now been found.  If there
-     * were none then there is nothing more to do.  Otherwise, sort the
-     * list of points of intersection in ascending order.
-     * (The list contains only the x-coordinates of the points.)
-     */
-
-    /* anything to do? */
-    if (intersections == 0)
-        return;
-
-    /* bubblesort the intersections, if it makes sense */
-    if (intersections > 1)
-        vdi_Polygon_bubbleSort(polygonPoints, intersections);
-
-    /*
-     * Testing under Atari TOS shows that the fill area always *includes*
-     * the left & right perimeter (for those functions that allow the
-     * perimeter to be drawn separately, it is drawn on top of the edge
-     * pixels). We now conform to Atari TOS.
-     */
-    {
-        bool clippingEnabled = spanBuffer->attr->clip;
-        WORD *polygonPoint = polygonPoints;
-        for (WORD i = intersections / 2 - 1; i >= 0; i--) {
-            WORD x[2]; x[0] = *polygonPoint++; x[1] = *polygonPoint++;
-            if (clippingEnabled && vdi_ClipRect_clipSingleCoordinate(clipRect->p[0].x, clipRect->p[1].x, x))
-                continue;
-            vdi_Polygon_drawSpan(spanBuffer, x[0], x[1], y);
-        }
-    }
-}
-
-/*
- * Draw a filled polygon.
- * TODO: By using the active edge algorithm, this could be made much faster.
- */
 static void vdi_Polygon_fill(vdi_VirtualWorkstation * RESTRICT vwk, Point *ptsin, WORD pointNb) {
-    // TODO: Compute also x bounds for clipping.
-    Point *point = ptsin;
-    WORD yMin = point->y, yMax = point->y;
-    for (WORD i = pointNb - 1; i > 0; i--) {
-        point++;
-        WORD y = point->y;
-        if (yMin > y)
-            yMin = y;
-        else if (yMax < y)
-            yMax = y;
-    }
-
-    const ClippingRect *clipRect = &vwk->clippingRect;
-    if (vwk->clippingEnabled) {
-        WORD yClipMin = clipRect->yMin, yClipMax = clipRect->yMax;
-        if (yMax < yClipMin || yMin > yClipMax)
-            return;
-        if (yMin < yClipMin)
-            yMin = yClipMin - 1; // FIXME: Why -1 ? Because of the loop ?
-        if (yMax > yClipMax)
-            yMax = yClipMax;
-    }
-
-    // Close the polygon, connect last and first point.
-    Point *ptsget = ptsin, *ptsput = ptsin + pointNb;
-    *ptsput = *ptsget;
-
-    VwkAttrib attr;
-    vdi_convertVwkToAttrib(vwk, &attr, vwk->fill_color);
-    vdi_SpanBuffer spanBuffer;
-    vdi_SpanBuffer_begin(&spanBuffer, &attr);
-    for (WORD y = yMax; y > yMin; y--)
-        vdi_Polygon_fillSpan(&spanBuffer, clipRect, ptsin, y, pointNb);
-    vdi_SpanBuffer_end(&spanBuffer);
-        
+    vdi_DrawContext dc;
+    vdi_DrawContext_setupPlaneNb(&dc);
+    vdi_DrawContext_setupFilling(&dc, vwk, vwk->fill_color);
+    vdi_DrawContext_setupClipping(&dc, vwk);
+    dc.polygon.points = ptsin;
+    dc.polygon.pointNb = pointNb;
+    vdi_getDriver()->fillPolygon(&dc);
     if (vwk->fill_per) {
         lineaVars.line_mask = 0xffff;
-        vdi_Line_drawPoly(vwk, ptsin, pointNb + 1, vwk->fill_color);
+        vdi_Line_drawPoly(vwk, ptsin, pointNb, vwk->fill_color, true);
     }
 }
 
@@ -1740,138 +1297,23 @@ static void vdi_v_fillarea(vdi_VirtualWorkstation * vwk) {
 }
 
 //--------------------------------------------------------------------------------
-// Circle.
+// Disk.
 //--------------------------------------------------------------------------------
 /*
- * Helper function for vdi_Circle_computePerpendicularOffset().
- * Converts input (x,y) to output (x,y) according to the value in 'quad':
- * - 1 ("south-east" quadrant):  x ->  x,  y ->  y
- * - 2 ("south-west" quadrant):  x -> -x,  y ->  y
- * - 3 ("north-west" quadrant):  x -> -x,  y -> -y
- * - 4 ("north-east" quadrant):  x ->  x,  y -> -y
- */
-static void vdi_Circle_convertToFirstQuadrant(WORD quad, WORD x, WORD y, WORD *tx, WORD *ty) {
-    switch (quad) {
-    default:
-    case 1: case 4:
-        *tx = x;
-        break;
-    case 2: case 3:
-        *tx = -x;
-        break;
-    }
-    switch (quad) {
-    default:
-    case 1: case 2:
-        *ty = y;
-        break;
-    case 3: case 4:
-        *ty = -y;
-        break;
-    }
-}
-
-/*
- * Calculate the perpendicular offsets.
- * Given a vector (vx,vy) which specifies the length and direction of
- * a line segment, this function returns x & y offsets to add/subtract
- * to the endpoints of the line segment.  The four points thereby
- * specified form a box which is the wideline segment.
- */
-static void vdi_Circle_computePerpendicularOffset(vdi_Circle *circle, WORD * px, WORD * py) {
-    WORD *vx = px, *vy = py;
-
-    /* Mirror transform the vector so that it is in the first quadrant. */
-    WORD quad;
-    if (*vx >= 0)
-        quad = (*vy >= 0) ? 1 : 4;
-    else
-        quad = (*vy >= 0) ? 2 : 3;
-
-    WORD x, y;
-    vdi_Circle_convertToFirstQuadrant(quad, *vx, *vy, &x, &y);
-
-    /*
-     * Traverse the circle in a dda-like manner and find the coordinate pair (u, v) such that the magnitude of (u*y - v*x) is minimized.
-     * In case of a tie, choose the value which causes (u - v) to be minimized.  If not possible, do something.
-     */
-    WORD min_val = 32767;
-    WORD *offsets = circle->offsets;
-    WORD u = *offsets, v = 0;
-    WORD x_val = 0, y_val = 0;
-    while (true) {
-        /* Check for new minimum, same minimum, or finished. */
-        WORD magnitude = abs(u * y - v * x);
-        if ((magnitude < min_val) || ((magnitude == min_val) && (abs(x_val - y_val) > abs(u - v)))) {
-            min_val = magnitude;
-            x_val = u;
-            y_val = v;
-        } else
-            break;
-
-        /* Step to the next pixel. */
-        if (v == circle->lineNb - 1) {
-            if (u == 1)
-                break;
-            else
-                u--;
-        } else {
-            if (offsets[v + 1] >= u - 1) {
-                v++;
-                u = offsets[v];
-            } else
-                u--;
-        }
-    }
-
-    /* Transform the solution according to the quadrant. */
-    vdi_Circle_convertToFirstQuadrant(quad, x_val, y_val, vx, vy);
-}
-
-// VDI helper/wrapper for horizontal line drawing.
-forceinline void vdi_Circle_drawSpan(vdi_SpanBuffer *spanBuffer, WORD x1, WORD x2, WORD y) {
-    Rect *r = vdi_SpanBuffer_add(spanBuffer);
-    r->x1 = x1; r->x2 = x2; r->y1 = r->y2 = y;
-}
-
-/*
- * Draw a circle.
+ * Fill a disk.
  * This is used by vdi_WideLine_draw():
  *  a) to round the ends of the line if not vdi_LineEndStyle_square
  *  b) to make a smooth join between line segments of a polyline
  */
 static void vdi_Circle_draw(vdi_VirtualWorkstation * vwk, vdi_Circle *circle, WORD cx, WORD cy) {
-    VwkAttrib attr;
-    vdi_convertVwkToAttrib(vwk, &attr, vwk->line_color);
-    vdi_SpanBuffer spanBuffer;
-    vdi_SpanBuffer_begin(&spanBuffer, &attr);
-    
-    /* Do the upper and lower semi-circles. */
-    const ClippingRect *cr = &vwk->clippingRect;
-    bool clippingEnabled = vwk->clippingEnabled;
-    WORD *offset = circle->offsets;
-    WORD lineNb = circle->lineNb;
-    for (WORD k = 0; k < lineNb; k++) {
-        WORD dx = *offset++;
-        WORD x[2] = { cx - dx, cx + dx }, y;
-        if (clippingEnabled && vdi_ClipRect_clipSingleCoordinate(cr->xMin, cr->xMax, x))
-            continue;
-
-        /* Upper semi-circle, plus the horizontal line through the center of the circle. */
-        y = cy - k;
-        if (!clippingEnabled || !vdi_ClipRect_checkPointY(cr, y))
-            vdi_Circle_drawSpan(&spanBuffer, x[0], x[1], y);
-        
-        if (k == 0)
-            continue;
-
-        /* Lower semi-circle. */
-        y = cy - k;
-        if (!clippingEnabled || !vdi_ClipRect_checkPointY(cr, y))
-            vdi_Circle_drawSpan(&spanBuffer, x[0], x[1], y);
-    }
-
-    vdi_SpanBuffer_end(&spanBuffer);
+    vdi_DrawContext dc;
+    vdi_DrawContext_setupPlaneNb(&dc);
+    vdi_DrawContext_setupFilling(&dc, vwk, vwk->fill_color);
+    vdi_DrawContext_setupClipping(&dc, vwk);
+    dc.disk.center.x = cx;
+    dc.disk.center.y = cy;
+    dc.disk.dda = circle;
+    vdi_getDriver()->fillDisk(&dc);
 }
 
 //--------------------------------------------------------------------------------
@@ -2013,6 +1455,92 @@ static void vdi_Arrow_draw(vdi_VirtualWorkstation * RESTRICT vwk, Point * RESTRI
 // Draw primitives with line width greater than 1.
 //--------------------------------------------------------------------------------
 /*
+ * Helper function for vdi_WideLine_computePerpendicularOffset().
+ * Converts input (x,y) to output (x,y) according to the value in 'quad':
+ * - 1 ("south-east" quadrant):  x ->  x,  y ->  y
+ * - 2 ("south-west" quadrant):  x -> -x,  y ->  y
+ * - 3 ("north-west" quadrant):  x -> -x,  y -> -y
+ * - 4 ("north-east" quadrant):  x ->  x,  y -> -y
+ */
+static void vdi_WideLine_convertToFirstQuadrant(WORD quad, WORD x, WORD y, WORD *tx, WORD *ty) {
+    switch (quad) {
+    default:
+    case 1: case 4:
+        *tx = x;
+        break;
+    case 2: case 3:
+        *tx = -x;
+        break;
+    }
+    switch (quad) {
+    default:
+    case 1: case 2:
+        *ty = y;
+        break;
+    case 3: case 4:
+        *ty = -y;
+        break;
+    }
+}
+
+/*
+ * Calculate the perpendicular offsets.
+ * Given a vector (vx,vy) which specifies the length and direction of
+ * a line segment, this function returns x & y offsets to add/subtract
+ * to the endpoints of the line segment.  The four points thereby
+ * specified form a box which is the wideline segment.
+ */
+static void vdi_WideLine_computePerpendicularOffset(vdi_Circle *circle, WORD * px, WORD * py) {
+    WORD *vx = px, *vy = py;
+
+    /* Mirror transform the vector so that it is in the first quadrant. */
+    WORD quad;
+    if (*vx >= 0)
+        quad = (*vy >= 0) ? 1 : 4;
+    else
+        quad = (*vy >= 0) ? 2 : 3;
+
+    WORD x, y;
+    vdi_WideLine_convertToFirstQuadrant(quad, *vx, *vy, &x, &y);
+
+    /*
+     * Traverse the circle in a dda-like manner and find the coordinate pair (u, v) such that the magnitude of (u*y - v*x) is minimized.
+     * In case of a tie, choose the value which causes (u - v) to be minimized.  If not possible, do something.
+     */
+    WORD min_val = 32767;
+    WORD *offsets = circle->offsets;
+    WORD u = *offsets, v = 0;
+    WORD x_val = 0, y_val = 0;
+    while (true) {
+        /* Check for new minimum, same minimum, or finished. */
+        WORD magnitude = abs(u * y - v * x);
+        if ((magnitude < min_val) || ((magnitude == min_val) && (abs(x_val - y_val) > abs(u - v)))) {
+            min_val = magnitude;
+            x_val = u;
+            y_val = v;
+        } else
+            break;
+
+        /* Step to the next pixel. */
+        if (v == circle->lineNb - 1) {
+            if (u == 1)
+                break;
+            else
+                u--;
+        } else {
+            if (offsets[v + 1] >= u - 1) {
+                v++;
+                u = offsets[v];
+            } else
+                u--;
+        }
+    }
+
+    /* Transform the solution according to the quadrant. */
+    vdi_WideLine_convertToFirstQuadrant(quad, x_val, y_val, vx, vy);
+}
+
+/*
  * Populate vdi_context.q_circle[] array.
  * This is called by vdi_WideLine_draw() when the current wideline width (lineaVars.circle_currentLineWidth)
  * changes, in order to reinitialise vdi_context.q_circle[]. It uses Bresenham's
@@ -2152,7 +1680,7 @@ static void vdi_WideLine_draw(vdi_VirtualWorkstation * RESTRICT vwk, Point * RES
             k = mul_div(-vy, vdi_deviceSizeY, vdi_deviceSizeX);
             vy = mul_div(vx, vdi_deviceSizeX, vdi_deviceSizeY);
             vx = k;
-            vdi_Circle_computePerpendicularOffset(circle, &vx, &vy);
+            vdi_WideLine_computePerpendicularOffset(circle, &vx, &vy);
         }
 
         /* Prepare the control and points parameters for the polygon call. */
@@ -2206,7 +1734,7 @@ static void vdi_v_pline(vdi_VirtualWorkstation * vwk) {
 #endif
     {
         if (vwk->line_width == 1) {
-            vdi_Line_drawPoly(vwk, point, count, vwk->line_color);
+            vdi_Line_drawPoly(vwk, point, count, vwk->line_color, false);
             if ((vwk->line_beg | vwk->line_end) & vdi_LineEndStyle_arrow)
                 vdi_Arrow_draw(vwk, point, count);
         } else
@@ -2351,13 +1879,12 @@ static void vdi_Bezier_drawSegments(vdi_VirtualWorkstation * vwk, WORD nr_vertic
             vdi_Polygon_fill(vwk, point, nr_vertices);
         } else {
             vdi_DrawContext dc;
-            vdi_Line_drawStart(&dc, vwk->wrt_mode, vwk->line_color);
+            vdi_Line_drawStart(&dc, vwk, vwk->clippingEnabled, vwk->wrt_mode, vwk->line_color);
             dc.line.lastLineFlag = false;
             for (WORD i = nr_vertices - 1; i > 0; i--) {
                 dc.line.line.p[0] = *point++;
                 dc.line.line.p[1] = *point;
-                if (!vwk->clippingEnabled || !vdi_Line_clip(&vwk->clippingRect, &line))
-                    vdi_getDriver()->drawLine(&dc);
+                vdi_getDriver()->drawLine(&dc);
             }
             vdi_Line_drawEnd(&dc);
         }
@@ -2763,527 +2290,6 @@ static void vdi_Bezier_initialize(vdi_VirtualWorkstation * vwk) {
 //--------------------------------------------------------------------------------
 // Seed filling.
 //--------------------------------------------------------------------------------
-#if 1
-
-/* Special values used in y member of vdi_SeedFilling_segment */
-#define vdi_SeedFilling_empty 0x7fff /* this entry is unused */
-#define vdi_SeedFilling_downFlag 0x8000
-#define vdi_SeedFilling_stripDownFlag(v) ((v) & 0x7FFF) /* strips vdi_SeedFilling_downFlag if present */
-
-/*
- * segment in queue structure used by contourfill()
- */
-typedef struct {
-    WORD y; /* y coordinate of segment and/or special value */
-    WORD xleft; /* x coordinate of segment start */
-    WORD xright; /* x coordinate of segment end */
-} vdi_SeedFilling_Segment;
-
-/*
- * this is currently made as large as will fit in the existing vdi_sharedBuffer
- * area without increasing it (see below).
- *
- * in order to be guaranteed to handle all possible shapes of fill area,
- * the number of entries probably needs to be greater than or equal to
- * the current horizontal screen resolution.
- */
-#define vdi_SeedFilling_queueSize (sizeof(vdi_sharedBuffer.common)/sizeof(vdi_SeedFilling_Segment))
-
-typedef struct {
-    // Image informations.
-    WORD planeNb;
-    WORD planeNbShift;
-    WORD stride;
-    UBYTE *pixels;
-
-    // Search and fill options (input parameters).
-    ClippingRect clipRect;
-    UWORD searchColor; // Selected colour.
-    bool seedType; // 1 => fill until selected colour is NOT found, 0 => fill until selected colour is found.
-    
-    vdi_SpanBuffer spanBuffer;
-
-    struct {
-        vdi_SeedFilling_Segment *buffer;
-        vdi_SeedFilling_Segment *bottom; /* the bottom of the queue */
-        vdi_SeedFilling_Segment *top; /* the last segment in use +1 */
-        vdi_SeedFilling_Segment *current; /* points to the active point */
-    } queue;
-    
-    WORD (*callback)(void);
-} vdi_SeedFilling;
-
-forceinline bool vdi_SeedFilling_isSegmentFree(vdi_SeedFilling_Segment *segment) {
-    return segment->y == vdi_SeedFilling_empty;
-}
-
-forceinline UWORD vdi_SeedFilling_searchToRight(WORD planeNb, WORD xMax, WORD x, UWORD mask, UWORD search_col, UWORD * pixels) {
-    while (x++ < xMax) {
-        rorw1(mask); // Rotate right.
-        if (mask & 0x8000)
-            pixels += planeNb; // Jump over interleaved bit plane.
-        UWORD color = vdi_getPixelColor(planeNb, mask, pixels);
-        if (search_col != color) // Search while pixel color != search color.
-            break;
-    }
-    return x - 1;
-}
-
-forceinline UWORD vdi_SeedFilling_searchToLeft(WORD planeNb, WORD xMin, WORD x, UWORD mask, UWORD search_col, UWORD *pixels) {
-    while (x-- > xMin) {
-        rolw1(mask); // Rotate left.
-        if (mask & 0x0001)
-            pixels -= planeNb; // Jump over interleaved bit plane.
-        UWORD color = vdi_getPixelColor(planeNb, mask, pixels);
-        if (search_col != color) // Search while pixel color != search color.
-            break;
-    }
-    return x + 1;
-}
-
-/*
- * Find the endpoints of a section of solid color
- *           (for the vdi_fill() routine.)
- *
- * input:   clip        ptr to clipping rectangle
- *          x           starting x value
- *          y           y coordinate of line
- *
- * output:  xleftout    ptr to variable to receive leftmost point of this colour
- *          xrightout   ptr to variable to receive rightmost point of this colour
- *
- * returns success flag:
- *          0 => no endpoints or starting x value on edge
- *          1 => endpoints found
- */
-static WORD vdi_SeedFilling_findEndPoints(vdi_SeedFilling * RESTRICT seedFilling, WORD x, WORD y, WORD * RESTRICT xleftout, WORD * RESTRICT xrightout) {
-    /* see, if we are in the y clipping range */
-    if (y < seedFilling->clipRect.yMin || y > seedFilling->clipRect.yMax)
-        return 0;
-
-    /* convert x,y to start address and bit mask */
-    UWORD * RESTRICT pixels = vdi_getPixelAddress(x, y);
-    WORD planeNb = seedFilling->planeNb;
-    UWORD mask = 0x8000 >> (x & 0xf); /* fetch the pixel mask. */
-
-    /* get search color and the left and right end */
-    UWORD color = vdi_getPixelColor(planeNb, mask, pixels);
-    *xrightout = vdi_SeedFilling_searchToRight(planeNb, seedFilling->clipRect.xMax, x, mask, color, pixels);
-    *xleftout = vdi_SeedFilling_searchToLeft(planeNb, seedFilling->clipRect.xMin, x, mask, color, pixels);
-
-    /* see, if the whole found segment is of search color? */
-    UBYTE seedType = seedFilling->seedType;
-    if (color != seedFilling->searchColor)
-        seedType ^= 1; /* return segment not of search color */
-    return seedType; /* return segment is of search color */
-}
-
-// Move queueTop down to remove unused seeds
-forceinline void vdi_SeedFilling_crunchQueue(vdi_SeedFilling * RESTRICT seedFilling) {
-    vdi_SeedFilling_Segment *queueBottom = seedFilling->queue.bottom;
-    vdi_SeedFilling_Segment *queueTop = seedFilling->queue.top;
-    vdi_SeedFilling_Segment *queueCurrent = seedFilling->queue.current;
-    while (((queueTop-1)->y == vdi_SeedFilling_empty) && (queueTop > queueBottom))
-        queueTop--;
-    if (queueCurrent >= queueTop)
-        queueCurrent = queueBottom;
-    seedFilling->queue.bottom = queueBottom;
-    seedFilling->queue.top = queueTop;
-    seedFilling->queue.current = queueCurrent;
-}
-
-forceinline void vdi_SeedFilling_draw(vdi_SeedFilling * RESTRICT seedFilling, WORD xLeft, WORD xRight, WORD y) {
-    Rect *r = vdi_SpanBuffer_add(&seedFilling->spanBuffer);
-    r->x1 = xLeft; r->x2 = xRight; r->y1 = r->y2 = y;
-}
-
-#if 0
-
-static vdi_SeedFilling_Segment* vdi_SeedFilling_findSegment(vdi_SeedFilling * RESTRICT seedFilling, WORD x, WORD y) {
-    vdi_SeedFilling_Segment *segmentFree = NULL;
-    for (vdi_SeedFilling_Segment *segment = seedFilling->queue.bottom; segment < seedFilling->queue.top; segment++) {
-        // Skip holes, remembering the first hole we find.
-        // TODO: Move holes into their own list.
-        if (vdi_SeedFilling_isSegmentFree(segment)) {
-            if (segmentFree == NULL)
-                segmentFree = segment;
-            continue;
-        }
-        if ((segment->y ^ vdi_SeedFilling_downFlag) == y && segment->xleft <= x && segment->xright >= x) {
-            /* we ran into another seed so remove it and fill the line */
-            vdi_SeedFilling_draw(seedFilling, xLeft, xRight, vdi_SeedFilling_stripDownFlag(yin));
-            segment->y = vdi_SeedFilling_empty;
-            if ((segment+1) == seedFilling->queue.top)
-                vdi_SeedFilling_crunchQueue(seedFilling);
-            return 0;
-        }
-    }   
-}
-
-#endif
-
-// Put seeds into Q, if (xin,yin) is not of searchColor.
-static WORD vdi_SeedFilling_getSeed(vdi_SeedFilling * RESTRICT seedFilling, WORD xin, WORD yin, WORD * RESTRICT xLeftOut, WORD * RESTRICT xRightOut) {
-    if (vdi_SeedFilling_findEndPoints(seedFilling, xin, vdi_SeedFilling_stripDownFlag(yin), xLeftOut, xRightOut)) {
-        vdi_SeedFilling_Segment *segmentHole = NULL, *segment;
-        WORD xLeft = *xLeftOut, xRight = *xRightOut;
-        for (segment = seedFilling->queue.bottom; segment < seedFilling->queue.top; segment++) {
-            /* skip holes, remembering the first hole we find */
-            // TODO: Move holes into their own list.
-            if (segment->y == vdi_SeedFilling_empty) {
-                if (segmentHole == NULL)
-                    segmentHole = segment;
-                continue;
-            }
-            if ((segment->y ^ vdi_SeedFilling_downFlag) == yin && segment->xleft == xLeft) {
-                /* we ran into another seed so remove it and fill the line */
-                vdi_SeedFilling_draw(seedFilling, xLeft, xRight, vdi_SeedFilling_stripDownFlag(yin));
-                segment->y = vdi_SeedFilling_empty;
-                if ((segment+1) == seedFilling->queue.top)
-                    vdi_SeedFilling_crunchQueue(seedFilling);
-                return 0;
-            }
-        }
-
-        // There were no holes, so raise vdi_context.seedFilling.queueTop if we can
-        if (segmentHole == NULL) {
-            vdi_SeedFilling_Segment *queueTop = seedFilling->queue.top + 1;
-            if (queueTop > seedFilling->queue.buffer + vdi_SeedFilling_queueSize) { /* can't raise vdi_context.seedFilling.queueTop ... */
-                KDEBUG(("vdi_fill(): queue overflow\n"));
-                return -1;      /* error */
-            }
-            seedFilling->queue.top = queueTop;
-        } else
-            segment = segmentHole;
-
-        segment->y = yin; /* put the y and endpoints in the Q */
-        segment->xleft = xLeft;
-        segment->xright = xRight;
-        return 1; /* we put a seed in the Q */
-    }
-    return 0; /* we didn't put a seed in the Q */
-}
-
-// Common function for line-A linea_fill() and VDI d_countourfill().
-static void vdi_SeedFilling_fill(const VwkAttrib * RESTRICT attr, const ClippingRect * RESTRICT clipRect) {
-    WORD xStart = lineaVars.PTSIN[0], yStart = lineaVars.PTSIN[1];
-    if (xStart < clipRect->xMin || xStart > clipRect->xMax || yStart < clipRect->yMin  || yStart > clipRect->yMax)
-        return;
-
-    vdi_SeedFilling seedFilling;
-    seedFilling.planeNb = lineaVars.screen_planeNb;
-    seedFilling.planeNbShift = vdi_context.planeNbShift;
-    seedFilling.stride = lineaVars.screen_lineSize2;
-    seedFilling.pixels = (UBYTE*)v_bas_ad;
-    seedFilling.clipRect = *clipRect;
-    seedFilling.callback = lineaVars.seedFilling_abortCallback;
-
-    {
-        UWORD searchColor = lineaVars.INTIN[0];
-        UBYTE seedType;
-        if ((WORD)searchColor < 0) {
-            searchColor = vdi_Pixel_read(xStart, yStart);
-            seedType = 1;
-        } else {
-            // Range check the color and convert the index to a pixel value.
-            if (searchColor >= vdi_deviceColorNum)
-                return;
-
-            // This used to limit the value of the search colour, according to the number of planes in the current resolution.
-            static const WORD plane_mask[] = { 1, 3, 7, 15, 31, 63, 127, 255 };
-            
-            /*
-             * We mandate that white is all bits on.  Since this yields 15
-             * in rom, we must limit it to how many planes there really are.
-             * Anding with the mask is only necessary when the driver supports
-             * move than one resolution.
-             */
-            WORD planeNb = seedFilling.planeNb;
-            searchColor = vdi_context.palette.penToPaletteTable[searchColor] & plane_mask[planeNb];
-            seedType = 0;
-        }
-        seedFilling.searchColor = searchColor;
-        seedFilling.seedType = seedType;
-    }
-    
-    WORD xLeftCurrent, xRightCurrent;
-    if (!vdi_SeedFilling_findEndPoints(&seedFilling, xStart, yStart, &xLeftCurrent, &xRightCurrent))
-        return;
-
-    vdi_SpanBuffer_begin(&seedFilling.spanBuffer, attr);
-        
-    /*
-     * From this point on we must NOT access lineaVars.PTSIN[], since the area is overwritten by the queue of seeds !
-     */
-    {
-        vdi_SeedFilling_Segment *queueCurrent = (vdi_SeedFilling_Segment *)&vdi_sharedBuffer;
-        queueCurrent->y = (yStart | vdi_SeedFilling_downFlag); /* stuff a point going down into the Q */
-        queueCurrent->xleft = xLeftCurrent;
-        queueCurrent->xright = xRightCurrent;
-        seedFilling.queue.buffer = queueCurrent;
-        seedFilling.queue.bottom = queueCurrent;
-        seedFilling.queue.top = queueCurrent + 1; /* one above highest seed point */
-        seedFilling.queue.current = queueCurrent;
-    }
-    
-    WORD yCurrent = yStart;
-    while (1) {
-        WORD direction = (yCurrent & vdi_SeedFilling_downFlag) ? 1 : -1; /* is next scan line up or down */
-        WORD xLeftNew, xRightNew;
-        WORD gotseed; // 1 => seed was put in the queue, 0 => no seed was put in the queue, -1 => queue overflowed
-
-        // New Y edge: search just above or under the current segment, starting at the left endpoint.
-        gotseed = vdi_SeedFilling_getSeed(&seedFilling, xLeftCurrent, yCurrent+direction, &xLeftNew, &xRightNew);
-        if (gotseed < 0)
-            goto on_exit; /* error, quit */
-        // Current Y: search left from the new Y edge, on the current Y, with opposite Y direction.
-        if (xLeftNew < (xLeftCurrent - 1) && gotseed) {
-            WORD xLeft = xLeftCurrent, xRight;
-            while (xLeft > xLeftNew) {
-                --xLeft;
-                if (vdi_SeedFilling_getSeed(&seedFilling, xLeft, yCurrent^vdi_SeedFilling_downFlag, &xLeft, &xRight) < 0)
-                    goto on_exit; /* error, quit */
-            }
-        }
-        // New Y edge: continue the search to the right, above or under the current Y segment.
-        while (xRightNew < xRightCurrent) {
-            WORD xLeft;
-            ++xRightNew;
-            gotseed = vdi_SeedFilling_getSeed(&seedFilling, xRightNew, yCurrent+direction, &xLeft, &xRightNew);
-            if (gotseed < 0)
-                goto on_exit; /* error, quit */
-        }
-        // Current Y: search right from the new Y edge, on the current Y, with opposite Y direction.
-        if (xRightNew > (xRightCurrent + 1) && gotseed) {
-            WORD xLeft, xRight = xRightCurrent;
-            while (xRight < xRightNew) {
-                ++xRight;
-                if (vdi_SeedFilling_getSeed(&seedFilling, xRight, yCurrent^vdi_SeedFilling_downFlag, &xLeft, &xRight) < 0)
-                    goto on_exit; /* error, quit */
-            }
-        }
-
-        {
-            vdi_SeedFilling_Segment *queueBottom = seedFilling.queue.bottom;
-            vdi_SeedFilling_Segment *queueTop = seedFilling.queue.top;
-            if (queueTop == queueBottom)
-                break; // The queue is empty, exit.
-            // Pop the next segment from the queue.
-            vdi_SeedFilling_Segment *queueCurrent = seedFilling.queue.current;
-            while (vdi_SeedFilling_isSegmentFree(queueCurrent)) {
-                queueCurrent++;
-                if (queueCurrent == queueTop)
-                    queueCurrent = queueBottom;
-            }
-            yCurrent = queueCurrent->y;
-            xLeftCurrent = queueCurrent->xleft;
-            xRightCurrent = queueCurrent->xright;
-            queueCurrent->y = vdi_SeedFilling_empty;
-            queueCurrent++;
-            seedFilling.queue.current = queueCurrent;
-            if (queueCurrent == queueTop)
-                vdi_SeedFilling_crunchQueue(&seedFilling);
-        }
-        
-        /* rectangle fill routine draws horizontal line */
-        vdi_SeedFilling_draw(&seedFilling, xLeftCurrent, xRightCurrent, vdi_SeedFilling_stripDownFlag(yCurrent));
-
-        /* after every line, check for early abort */
-        if (seedFilling.callback())
-            break;
-    }
-    
-on_exit:
-    vdi_SpanBuffer_end(&seedFilling.spanBuffer);
-}
-
-#else
-
-// See "A seed fill algorithm", Paul S. Heckbert, Graphics Gems, page 275.
-
-typedef struct {
-    WORD y;
-    WORD dy;
-    WORD xLeft;
-    WORD xRight;
-} vdi_SeedFilling_Segment;
-
-#define vdi_SeedFilling_stackCapacity (sizeof(vdi_sharedBuffer.common)/sizeof(vdi_SeedFilling_Segment))
-
-typedef struct {
-    WORD planeNb;
-    WORD planeNbShift;
-    WORD stride;
-    UBYTE *pixels;
-    UBYTE *pixelsCurrent;
-
-    const VwkAttrib * attr;
-    ClippingRect clipRect;
-    UWORD searchColor;
-    bool seedType;
-    vdi_SeedFilling_Segment *stack;
-    vdi_SeedFilling_Segment *stackHead;
-    vdi_SeedFilling_Segment current;
-} vdi_SeedFilling;
-
-static bool vdi_SeedFilling_checkPosition(const ClippingRect *clipRect, WORD x, WORD y) {
-    return x >= clipRect->xMin && x <= clipRect->xMax && y >= clipRect->yMin  && y <= clipRect->yMax;
-}
-
-static bool vdi_SeedFilling_getSearchColor(vdi_SeedFilling *seedFilling, WORD xStart, WORD yStart, UWORD searchColor) {
-    bool seedType;
-    if ((WORD)searchColor < 0) {
-        searchColor = vdi_Pixel_read(xStart, yStart);
-        seedType = true;
-    } else {
-        // Range check the color and convert the index to a pixel value.
-        if (searchColor >= vdi_deviceColorNum)
-            return true;
-
-        // This used to limit the value of the search colour, according to the number of planes in the current resolution.
-        static const UWORD plane_mask[] = { 0, 1, 3, 7, 15, 31, 63, 127, 255 };
-        
-        /*
-         * We mandate that white is all bits on.  Since this yields 15
-         * in rom, we must limit it to how many planes there really are.
-         * Anding with the mask is only necessary when the driver supports
-         * more than one resolution.
-         */
-        searchColor = vdi_context.palette.penToPaletteTable[searchColor] & plane_mask[lineaVars.screen_planeNb];
-        seedType = false;
-    }
-    seedFilling->searchColor = searchColor;
-    seedFilling->seedType = seedType;
-    return false;
-}
-
-static bool vdi_SeedFilling_isSearchColor(vdi_SeedFilling *seedFilling, WORD x) {
-    WORD planeNb = seedFilling->planeNb;
-    UWORD *pixelsCurrent = (UWORD*)(seedFilling->pixelsCurrent + ((x & 0xfff0) >> seedFilling->planeNbShift)) + planeNb;
-    UWORD mask = 0x8000 >> (x & 0xf), color = 0;
-    LOOP_DO(planeIndex, planeNb) {
-        color <<= 1;
-        if (*--pixelsCurrent & mask)
-            color |= 1;
-    } LOOP_WHILE(planeIndex);
-    bool seedType = seedFilling->seedType;
-    if (color != seedFilling->searchColor)
-        seedType ^= 1;
-    return seedType;
-}
-
-static WORD vdi_SeedFilling_searchLeft(vdi_SeedFilling *seedFilling, WORD x) {
-    for ( ; x >= seedFilling->clipRect.xMin; x--)
-        if (!vdi_SeedFilling_isSearchColor(seedFilling, x))
-            break;
-    return x;
-}
-
-static WORD vdi_SeedFilling_searchRight(vdi_SeedFilling *seedFilling, WORD x) {
-    for ( ; x <= seedFilling->clipRect.xMax; x++)
-        if (!vdi_SeedFilling_isSearchColor(seedFilling, x))
-            break;
-    return x;
-}
-
-static WORD vdi_SeedFilling_skipRight(vdi_SeedFilling *seedFilling, WORD x) {
-    for ( ; x <= seedFilling->current.xRight; x++)
-        if (vdi_SeedFilling_isSearchColor(seedFilling, x))
-            break;
-    return x;
-}
-
-static bool vdi_SeedFilling_isStackEmpty(vdi_SeedFilling *seedFilling) {
-    return seedFilling->stackHead <= seedFilling->stack;
-}
-
-static void vdi_SeedFilling_push(vdi_SeedFilling *seedFilling, WORD y, WORD xLeft, WORD xRight, WORD dy) {
-    WORD yNext = y + dy;
-    vdi_SeedFilling_Segment *stackHead = seedFilling->stackHead;
-    if (stackHead < &seedFilling->stack[vdi_SeedFilling_stackCapacity] && yNext >= seedFilling->clipRect.yMin && yNext <= seedFilling->clipRect.yMax) {
-        stackHead->y = y;
-        stackHead->xLeft = xLeft;
-        stackHead->xRight = xRight;
-        stackHead->dy = dy;
-        stackHead++;
-        seedFilling->stackHead = stackHead;
-    }
-}
-
-static void vdi_SeedFilling_pop(vdi_SeedFilling *seedFilling) {
-    vdi_SeedFilling_Segment *stackHead = seedFilling->stackHead;
-    stackHead--;
-    seedFilling->stackHead = stackHead;
-    seedFilling->current = *stackHead;
-    seedFilling->current.y += seedFilling->current.dy;
-    seedFilling->pixelsCurrent = seedFilling->pixels + seedFilling->current.y * seedFilling->stride;
-}
-
-static void vdi_SeedFilling_draw(vdi_SeedFilling *seedFilling, WORD xLeft, WORD xRight) {
-    Rect rect;
-    rect.x1 = xLeft;
-    rect.y1 = seedFilling->current.y;
-    rect.x2 = xRight;
-    rect.y2 = seedFilling->current.y;
-    vdi_Rectangle_fillInternal(seedFilling->attr, &rect);
-}
-
-static void vdi_SeedFilling_fill(const VwkAttrib * attr, const ClippingRect *clipRect) {
-    WORD xStart = lineaVars.PTSIN[0], yStart = lineaVars.PTSIN[1];
-    if (!vdi_SeedFilling_checkPosition(clipRect, xStart, yStart))
-        return;
-
-    vdi_SeedFilling seedFilling;
-    seedFilling.planeNb = lineaVars.screen_planeNb;
-    seedFilling.planeNbShift = vdi_context.planeNbShift;
-    seedFilling.stride = lineaVars.screen_lineSize2;
-    seedFilling.pixels = (UBYTE*)v_bas_ad;
-    seedFilling.pixelsCurrent = NULL;
-    seedFilling.attr = attr;
-    seedFilling.clipRect = *clipRect;
-    seedFilling.stack = (vdi_SeedFilling_Segment *)&vdi_sharedBuffer;
-    seedFilling.stackHead = seedFilling.stack;
-    
-    if (vdi_SeedFilling_getSearchColor(&seedFilling, xStart, yStart, lineaVars.INTIN[0]))
-        return;
-    vdi_SeedFilling_push(&seedFilling, yStart, xStart, xStart, 1);
-    vdi_SeedFilling_push(&seedFilling, yStart + 1, xStart, xStart, -1);
-
-    while (!vdi_SeedFilling_isStackEmpty(&seedFilling)) {
-        vdi_SeedFilling_pop(&seedFilling);
-        // Search to the left, from the left-most pixel of the previous line.
-        WORD x = vdi_SeedFilling_searchLeft(&seedFilling, seedFilling.current.xLeft), xLeftNew;
-        if (x >= seedFilling.current.xLeft)
-            goto skip; // No pixel found on the left part.
-        xLeftNew = x + 1; // Skip this pixel which is not the search color.
-        // Push this left-most part if it is at least one pixel large, in the opposite direction.
-        if (xLeftNew < seedFilling.current.xLeft)
-            vdi_SeedFilling_push(&seedFilling, seedFilling.current.y, xLeftNew, seedFilling.current.xLeft - 1, -seedFilling.current.dy);
-        x = seedFilling.current.xLeft + 1; // Resume the search starting after the pixels already checked.
-        do {
-            // Search along the previous line.
-            x = vdi_SeedFilling_searchRight(&seedFilling, x);           
-            // We can draw the whole edge.
-            if (x > xLeftNew)
-                vdi_SeedFilling_draw(&seedFilling, xLeftNew, x - 1);
-            // Push the part in the current direction.
-            vdi_SeedFilling_push(&seedFilling, seedFilling.current.y, xLeftNew, x - 1, seedFilling.current.dy);
-            // Push this right-most part if it is at least one pixel large, in the opposite direction.
-            if (x > seedFilling.current.xRight + 1) {
-                vdi_SeedFilling_push(&seedFilling, seedFilling.current.y, seedFilling.current.xRight + 1, x - 1, -seedFilling.current.dy);
-                break;
-            }
-skip:
-            x++; // We already know the last pixel was not the search color so skip it.
-            // Skip every pixels which are not the search color.
-            x = vdi_SeedFilling_skipRight(&seedFilling, x);
-            xLeftNew = x; // The next iteration looking for the search color begins here.
-        } while (x < seedFilling.current.xRight);
-    }
-}
-
-#endif
-
 /*
  * Calls the routine pointed to by lineaVars.seedFilling_abortCallback
  * on a regular basis to determine whether to prematurely abort the fill.
@@ -3295,10 +2301,15 @@ static WORD vdi_SeedFilling_noAbort(void) {
 }
 
 static void vdi_v_contourfill(vdi_VirtualWorkstation * vwk) {
-    VwkAttrib attr;
-    lineaVars.seedFilling_abortCallback = vdi_SeedFilling_noAbort;
-    vdi_convertVwkToAttrib(vwk, &attr, vwk->fill_color);
-    vdi_SeedFilling_fill(&attr, &vwk->clippingRect);
+    vdi_DrawContext dc;
+    vdi_DrawContext_setupPlaneNb(&dc);
+    vdi_DrawContext_setupFilling(&dc, vwk, vwk->fill_color);
+    vdi_DrawContext_setupClipping(&dc, vwk);
+    dc.seedFilling.abort = vdi_SeedFilling_noAbort;
+    dc.seedFilling.startX = lineaVars.PTSIN[0];
+    dc.seedFilling.startY = lineaVars.PTSIN[1];
+    dc.seedFilling.searchColor = lineaVars.INTIN[0];
+    vdi_getDriver()->seedFill(&dc);
 }
 
 //--------------------------------------------------------------------------------
@@ -5730,7 +4741,7 @@ static void vdi_Text_output(vdi_VirtualWorkstation *vwk, WORD count, WORD *str, 
 
     if (vwk->style & vdi_TextStyle_underscored) {
         vdi_DrawContext dc;
-        vdi_Line_drawStart(&dc, vwk->wrt_mode, vwk->text_color);
+        vdi_Line_drawStart(&dc, vwk, vwk->clippingEnabled, vwk->wrt_mode, vwk->text_color);
         dc.line.lastFlag = false;
         dc.line.mask = (vwk->style & vdi_TextStyle_light) ? fnt_ptr->lighten : 0xffff; // Overwrite line-A line mask.
 
@@ -5748,8 +4759,7 @@ static void vdi_Text_output(vdi_VirtualWorkstation *vwk, WORD count, WORD *str, 
         count = fnt_ptr->ul_size;
         for (WORD i = 0; i < count; i++) {
             dc.line.line = line;
-            if (!vwk->clippingEnabled || !vdi_Line_clip(&vwk->clippingRect, &dc.line.line))
-                vdi_getDriver()->drawLine(&dc);
+            vdi_getDriver()->drawLine(&dc);
             line.x1 += xfact;
             line.x2 += xfact;
             line.y1 += yfact;
@@ -6589,7 +5599,7 @@ static void vdi_Gdp_computeArc(vdi_VirtualWorkstation * RESTRICT vwk, vdi_Gdp * 
     if (gdp->primitive == vdi_GdpType_arc || gdp->primitive == vdi_GdpType_ellipticalArc) { /* v_arc() or v_ellarc() */
         if (vwk->line_width == 1) {
             vdi_Line_setMask(vwk);
-            vdi_Line_drawPoly(vwk, points, steps, vwk->line_color);
+            vdi_Line_drawPoly(vwk, points, steps, vwk->line_color, false);
             // If the ends are arrowed, output them.
             if ((vwk->line_beg | vwk->line_end) & vdi_LineEndStyle_arrow)
                 vdi_Arrow_draw(vwk, points, steps);
@@ -6758,7 +5768,7 @@ static void vdi_Gdp_drawRoundedBox(vdi_VirtualWorkstation *vwk) {
         *p = lineaVars.PTSIN[1];
 
         if (vwk->line_width == 1)
-            vdi_Line_drawPoly(vwk, (Point*)ptsin, vdi_roundedRectanglePointNum, vwk->line_color);
+            vdi_Line_drawPoly(vwk, (Point*)ptsin, vdi_roundedRectanglePointNum, vwk->line_color, false);
         else
             vdi_WideLine_draw(vwk, (Point*)ptsin, vdi_roundedRectanglePointNum);
     } else {
@@ -6779,7 +5789,7 @@ static void vdi_v_gdp(vdi_VirtualWorkstation * vwk) {
             ptsin[3] = ptsin[9] = ptsin[1];
             ptsin[4] = ptsin[2];
             ptsin[6] = ptsin[8] = ptsin[0];
-            vdi_Line_drawPoly(vwk, (Point*)ptsin, 5, vwk->fill_color);
+            vdi_Line_drawPoly(vwk, (Point*)ptsin, 5, vwk->fill_color, false);
         }
         break;
 
@@ -8775,18 +7785,24 @@ static UWORD linea_color(void) {
 }
 
 // Sets VwkAttrib fields from line-A variables.
-static void linea_convertToAttrib(VwkAttrib *attr) {
-    attr->clip = lineaVars.clipping_enabled;      /* only used by polygon drawing */
+static void linea_convertToAttrib(vdi_DrawContext * RESTRICT dc, UWORD color, bool multiFill) {
+    vdi_DrawContext_setupPlaneNb(dc);
+    dc->clipping.enabled = lineaVars.clipping_enabled;
+    if (dc->clipping.enabled)
+        dc->clipping.rect = lineaVars.clipping_rect;
+    else
+        dc->clipping.rect = vdi_context.clippingRectFull;
     if (lineaVars.pattern_address) {
-        attr->patmsk = lineaVars.pattern_mask;
-        attr->patptr = lineaVars.pattern_address;
+        dc->pattern.mask = lineaVars.pattern_mask;
+        dc->pattern.data = lineaVars.pattern_address;
     } else {
-        /* pattern is always needed for vdi_Rectangle_fillInternal, default to solid */
-        attr->patmsk = 0;
-        attr->patptr = &vdi_FillPattern_solid;
+        /* pattern is always needed for rectangle filling, default to solid */
+        dc->pattern.mask = 0;
+        dc->pattern.data = &vdi_FillPattern_solid;
     }
-    attr->wrt_mode = lineaVars.writingMode;
-    attr->color = linea_color();
+    dc->mode = lineaVars.writingMode;
+    dc->color = color;
+    dc->multiFill = multiFill;
 }
  
 void linea_show_mouse(void) {
@@ -8828,54 +7844,46 @@ void linea_put_pix(void) {
 }
 
 void linea_hline(void) {
-    Rect line = lineaVars.rect;
-    vdi_Rect_sortX(&line);
-    VwkAttrib attr;
-    linea_convertToAttrib(&attr);
-    attr.multifill = lineaVars.pattern_multiPlaneFillFlag; /* linea4 supports lineaVars.pattern_multiPlaneFillFlag */
-    vdi_Rectangle_fillInternal(&attr, &line);
+    vdi_DrawContext dc;
+    linea_convertToAttrib(&dc, linea_color(), lineaVars.pattern_multiPlaneFillFlag); /* linea4 supports lineaVars.pattern_multiPlaneFillFlag */
+    dc.rect = lineaVars.rect;
+    dc.rect.y2 = dc.rect.y1;
+    vdi_getDriver()->fillRectangle(&dc);
 }
 
 void linea_line(void) {
-    Line line = lineaVars.rect;
-    // Line-A lineMask is already set by caller.
-//    if (lineaVars.clipping_enabled && vdi_Line_clip(&vwk->clippingRect, &line)) // No clipping with Line-A ?
-//        return;
-    vdi_Line_draw(&line, lineaVars.writingMode, linea_color(), lineaVars.line_lastFlag);
+    vdi_DrawContext dc;
+    vdi_Line_drawStart(&dc, lineaVars.workstation_current, lineaVars.clipping_enabled, lineaVars.writingMode, linea_color());
+    dc.line.line = lineaVars.rect;
+    dc.line.lastFlag = lineaVars.line_lastFlag;
+    vdi_getDriver()->drawLine(&dc);
+    vdi_Line_drawEnd(&dc);
 }
 
 void linea_rect(void) {
-    Rect rect = lineaVars.rect;
-    if (lineaVars.clipping_enabled && vdi_Rect_clip(&rect, &lineaVars.clipping_rect))
-        return;
-    VwkAttrib attr;
-    linea_convertToAttrib(&attr);
-    attr.multifill = lineaVars.pattern_multiPlaneFillFlag; /* linea5 supports lineaVars.pattern_multiPlaneFillFlag */
-    vdi_Rectangle_fillInternal(&attr, &rect);
+    vdi_DrawContext dc;
+    linea_convertToAttrib(&dc, linea_color(), lineaVars.pattern_multiPlaneFillFlag); /* linea5 supports lineaVars.pattern_multiPlaneFillFlag */
+    dc.rect = lineaVars.rect;
+    vdi_getDriver()->fillRectangle(&dc);
 }
 
 void linea_polygon(void) {
-    WORD y = lineaVars.rect.y1;
-    ClippingRect *clippingRect = lineaVars.clipping_enabled ? &lineaVars.clipping_rect : &vdi_context.clippingRectFull;
-    if (vdi_ClipRect_checkPointY(clippingRect, y))
-        return;
-
-    VwkAttrib attr;
-    linea_convertToAttrib(&attr);
-    attr.multifill = 0; /* linea6 does not support lineaVars.pattern_multiPlaneFillFlag */
-    vdi_SpanBuffer spanBuffer;
-    vdi_SpanBuffer_begin(&spanBuffer, &attr);   
-    vdi_Polygon_fillSpan(&spanBuffer, clippingRect, (Point*)lineaVars.PTSIN, y, lineaVars.parameters.contrl->inputVertexNb);
-    vdi_SpanBuffer_end(&spanBuffer);
+    vdi_DrawContext dc;
+    linea_convertToAttrib(&dc, linea_color(), false); /* linea6 does not support lineaVars.pattern_multiPlaneFillFlag */
+    dc.polygon.points = (Point*)lineaVars.PTSIN;
+    dc.polygon.pointNb = lineaVars.parameters.contrl->inputVertexNb;
+    dc.polygon.currentY = lineaVars.rect.y1;
+    vdi_getDriver()->fillPolygonSpan(&dc);
 }
 
 void linea_fill(void) {
-    VwkAttrib attr;
-    linea_convertToAttrib(&attr);
-    attr.multifill = 0; /* lineaf does not support lineaVars.pattern_multiPlaneFillFlag */
-    attr.color = lineaVars.workstation_current->fill_color;
-    ClippingRect *clippingRect = lineaVars.clipping_enabled ? &lineaVars.clipping_rect : &vdi_context.clippingRectFull;
-    vdi_SeedFilling_fill(&attr, clippingRect);
+    vdi_DrawContext dc;
+    linea_convertToAttrib(&dc, lineaVars.workstation_current->fill_color, false); /* lineaf does not support lineaVars.pattern_multiPlaneFillFlag */
+    dc.seedFilling.abort = vdi_SeedFilling_noAbort;
+    dc.seedFilling.startX = lineaVars.PTSIN[0];
+    dc.seedFilling.startY = lineaVars.PTSIN[1];
+    dc.seedFilling.searchColor = lineaVars.INTIN[0];
+    vdi_getDriver()->seedFill(&dc);
 }
 
 void linea_raster(void) {
